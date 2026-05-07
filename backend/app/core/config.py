@@ -12,6 +12,7 @@ This means your entire config is in one place, type-checked, and
 validated before the app starts. No scattered os.getenv() calls.
 """
 
+from pydantic import ConfigDict
 from pydantic_settings import BaseSettings
 from typing import List
 
@@ -46,9 +47,10 @@ class Settings(BaseSettings):
     RESTAURANT_CACHE_TTL: int = 3600  # 1 hr
     MENU_CACHE_TTL: int = 1800  # 30 min
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    # class Config:
+    #     env_file = ".env"
+    #     case_sensitive = True
+    model_config = ConfigDict(env_file=".env", case_sensitive=True)
 
 
 settings = Settings()

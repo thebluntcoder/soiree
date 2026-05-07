@@ -12,6 +12,20 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.8.0] — 2026-04-27
+
+### Added
+- 46 unit tests — all passing in 0.10s
+- tests/unit/test_planner.py — prompt builders, section markers, MCP injection
+- tests/unit/test_offers.py — offer filtering, plan text parsing
+- tests/unit/test_orchestrator.py — budget splits, venue mode routing, graceful degradation
+- pytest.ini — pythonpath=. for module resolution
+
+### Fixed
+- core/config.py — migrated to Pydantic v2 ConfigDict
+
+---
+
 ## [0.7.0] — 2026-04-26
 
 ### Added

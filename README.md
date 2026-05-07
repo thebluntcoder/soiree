@@ -39,7 +39,10 @@ No one has built the **full-evening arc** before: start at a restaurant (Dineout
 | Claude streaming plan generation | ✅ Working |
 | Events CRUD API | ✅ Working |
 | Next.js frontend | ✅ Working |
+| Follow-up chat UI | ✅ Working |
+| Plan persistence to DB | ✅ Working |
 | Swiggy MCP real credentials | ⏳ Access requested |
+| Alembic migrations | ✅ Working |
 | Phone OTP auth | 🔜 Phase 2 |
 | Agentic ordering | 🔜 Phase 2 |
 
@@ -56,6 +59,8 @@ No one has built the **full-evening arc** before: start at a restaurant (Dineout
 - **AI plan generation** — Claude claude-sonnet-4-20250514 streams a complete plan via SSE: timeline, Dineout pick + slot, food delivery options, Instamart cart
 - **Offer & discount engine** — live Swiggy offers fetched, filtered by budget, displayed with savings
 - **Events persistence** — events saved to Postgres with full CRUD API
+- **Plan persistence** — generated plans saved to Postgres with status tracking (generating → ready)
+- **Follow-up chat** — conversational plan refinement after generation. Suggestion chips for common requests. Full conversation history sent to Claude for context-aware replies.
 
 ### Phase 2 — Approve & Order 🔜
 - One-tap autonomous ordering — agent calls `place_food_order` + `checkout` + `book_table`
@@ -186,7 +191,8 @@ soiree/
 │   │   │   └── plan.py                    # Plan (MCP snapshots, timeline, costs, order IDs)
 │   │   ├── schemas/                       # Pydantic request/response shapes
 │   │   │   ├── event.py                   # EventCreate, EventRead, EventUpdate
-│   │   │   └── plan.py                    # PlanRequest, Guest, EventType, VenueMode
+│   │   │   ├── plan.py                    # PlanRequest, Guest, EventType, VenueMode
+│   │   │   └── plan_response.py           # PlanReadResponse — GET /plans/{id}
 │   │   ├── api/v1/
 │   │   │   ├── router.py                  # Mounts all endpoint routers
 │   │   │   └── endpoints/
@@ -195,7 +201,10 @@ soiree/
 │   │   │       ├── users.py               # Auth endpoints (Phase 2)
 │   │   │       ├── offers.py              # Live offers fetch
 │   │   │       └── orders.py              # Order status tracking (Phase 2)
+│   │   ├── lib/
+│   │   │   └── parse_plan.py              # Server-side plan parser (mirrors frontend parsePlan.ts)
 │   │   ├── services/
+│   │   │   ├── plan_service.py            # DB operations: create_plan, update_plan_text, get_plan
 │   │   │   ├── mcp/
 │   │   │   │   ├── orchestrator.py        # asyncio.gather() across all 3 MCPs
 │   │   │   │   ├── food.py                # Swiggy Food MCP client + mocks
@@ -218,6 +227,12 @@ soiree/
 │   │   │   └── test_offers.py
 │   │   └── integration/
 │   │       └── test_mcp.py
+│   ├── alembic.ini                        # Alembic config — DB connection string
+│   ├── alembic/
+│   │   ├── env.py                         # Migration environment — imports all models
+│   │   ├── script.py.mako                 # Migration file template
+│   │   └── versions/
+│   │       └── 9e26f57f8d8b_initial_*.py  # Initial schema — users, events, plans
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   └── .env.example
@@ -232,21 +247,23 @@ soiree/
 │   │   ├── lib/
 │   │   │   ├── api.ts                     # Fetch client, SSE stream consumer
 │   │   │   └── parsePlan.ts               # Section marker parser, timeline extractor
-│   │   ├── hooks/
-│   │   │   └── usePlanStream.ts           # React hook: stream state management
+│   └── hooks/
+│       ├── usePlanStream.ts           # React hook: SSE stream state management
+│       └── useChatStream.ts           # React hook: multi-turn chat state + history
 │   │   └── components/
 │   │       ├── event/
 │   │       │   ├── EventForm.tsx          # Main form (occasion, venue, budget, time)
 │   │       │   ├── GuestRoster.tsx        # Named guests + dietary tags, or headcount
 │   │       │   └── LocationPicker.tsx     # Text input + GPS detect (Nominatim)
-│   │       └── plan/
-│   │           ├── PlanStream.tsx         # Main plan renderer (idle/streaming/done/error)
-│   │           ├── TimelineCard.tsx       # Evening timeline with connector lines
-│   │           ├── DineoutCard.tsx        # Restaurant reservation card
-│   │           ├── FoodCard.tsx           # Food delivery options card
-│   │           ├── InstamartCard.tsx      # Grocery cart card
-│   │           ├── OffersCard.tsx         # Offers + total savings card
-│   │           └── CostCard.tsx           # Cost breakdown + total card
+│           └── plan/
+│               ├── PlanStream.tsx         # Main plan renderer (idle/streaming/done/error)
+│               ├── TimelineCard.tsx       # Evening timeline with connector lines
+│               ├── DineoutCard.tsx        # Restaurant reservation card
+│               ├── FoodCard.tsx           # Food delivery options card
+│               ├── InstamartCard.tsx      # Grocery cart card
+│               ├── OffersCard.tsx         # Offers + total savings card
+│               ├── CostCard.tsx           # Cost breakdown + total card
+│               └── ChatPanel.tsx          # Follow-up chat UI with suggestion chips
 │   ├── package.json
 │   ├── next.config.js                     # API proxy rewrites to FastAPI
 │   ├── tailwind.config.js                 # Custom fonts, colors, animations
@@ -295,7 +312,16 @@ docker run -d --name soiree-redis \
   -p 6379:6379 redis:7-alpine
 ```
 
-### 3. Start backend
+### 3. Apply database migrations
+
+```bash
+cd backend
+alembic upgrade head
+```
+
+> Note: Run this once after first setup, and again whenever you pull changes that include new migration files in `alembic/versions/`.
+
+### 4. Start backend
 
 ```bash
 cd backend
@@ -305,7 +331,7 @@ uvicorn app.main:app --reload
 # Docs at http://localhost:8000/docs
 ```
 
-### 4. Start frontend
+### 5. Start frontend
 
 ```bash
 cd frontend
@@ -314,7 +340,7 @@ npm run dev
 # UI running at http://localhost:3000
 ```
 
-### 5. Verify
+### 6. Verify
 
 ```bash
 curl http://localhost:8000/health
@@ -335,6 +361,7 @@ curl http://localhost:8000/health
 | Plan not streaming | Planner / SSE | Check `max_tokens`, SSE headers, `⏎` encoding |
 | `MissingGreenlet` error | SQLAlchemy async | Using sync SQLAlchemy code in async context |
 | Tables not created | `init_db()` | Model not imported before `create_all()` |
+| New model field not appearing in DB | Alembic | Run `alembic revision --autogenerate -m "description"` then `alembic upgrade head` |
 
 ---
 
@@ -563,6 +590,42 @@ Each transition is triggered by a specific action:
 
 ---
 
+## Database Migration Workflow
+
+Alembic manages all schema changes. Never edit the DB manually or use `create_all()`.
+
+### First time setup
+```bash
+cd backend
+alembic upgrade head    # applies all migrations to your DB
+```
+
+### Adding a new field to a model
+```bash
+# 1. Edit the model file e.g. models/user.py — add the new field
+# 2. Generate migration — Alembic diffs models vs live DB
+alembic revision --autogenerate -m "add default_city to users"
+# 3. Review the generated file in alembic/versions/ — check it looks right
+# 4. Apply it
+alembic upgrade head
+```
+
+### Other useful commands
+```bash
+alembic current          # show current migration version in DB
+alembic history          # list all migrations
+alembic downgrade -1     # roll back one migration
+alembic downgrade base   # roll back everything (careful — data loss)
+alembic upgrade head --sql  # preview SQL without applying (dry run)
+```
+
+### Rule
+Every schema change goes through Alembic. If you add a field to a model
+and don't run a migration, the column won't exist in Postgres and you'll
+get an `UndefinedColumn` error at runtime.
+
+---
+
 ## Debugging Flowchart
 
 ```
@@ -645,8 +708,8 @@ Bug appears
 - [x] Events CRUD API
 - [x] Plan persistence — save to DB after generation
 - [x] Next.js frontend — streaming plan UI
-- [ ] Follow-up chat UI
-- [ ] Alembic migrations
+- [x] Follow-up chat UI — suggestion chips, streaming replies, conversation history
+- [x] Alembic migrations — versioned schema management, create_all() removed 
 - [ ] Unit + integration tests
 - [ ] Real Swiggy MCP credentials
 - [ ] Phone OTP auth (Phase 2)

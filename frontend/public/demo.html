@@ -1,0 +1,1578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Soirée — Life Events Concierge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0e0c0a;
+  --surface: #161310;
+  --surface2: #1e1a16;
+  --border: rgba(255,220,160,0.08);
+  --border2: rgba(255,220,160,0.15);
+  --gold: #c9a96e;
+  --gold-light: #e8c98a;
+  --gold-dim: rgba(201,169,110,0.3);
+  --text: #f0e8d8;
+  --text2: rgba(240,232,216,0.55);
+  --text3: rgba(240,232,216,0.28);
+  --coral: #d4614a;
+  --coral-dim: rgba(212,97,74,0.15);
+  --green: #5a8f6a;
+  --green-dim: rgba(90,143,106,0.12);
+  --amber: #c4883a;
+  --amber-dim: rgba(196,136,58,0.12);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Grain texture overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 100;
+  opacity: 0.4;
+}
+
+/* ── HEADER ─────────────────────────────────────── */
+header {
+  display: flex;
+  align-items: center;
+  padding: 28px 48px;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.logo-mark {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--gold-dim);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: var(--gold);
+  position: relative;
+}
+
+.logo-mark::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 1px solid var(--gold-dim);
+  animation: spin-slow 8s linear infinite;
+}
+
+@keyframes spin-slow {
+  to { transform: rotate(360deg); }
+}
+
+.logo-text {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 26px;
+  font-weight: 400;
+  letter-spacing: 3px;
+  color: var(--text);
+}
+
+.logo-sub {
+  font-size: 10px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--text3);
+  margin-left: auto;
+}
+
+.swiggy-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--border2);
+  border-radius: 20px;
+  font-size: 11px;
+  color: var(--gold);
+  letter-spacing: 1px;
+}
+
+.swiggy-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--coral);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+
+/* ── LAYOUT ──────────────────────────────────────── */
+.main {
+  display: grid;
+  grid-template-columns: 420px 1fr;
+  height: calc(100vh - 89px);
+}
+
+/* ── SIDEBAR ─────────────────────────────────────── */
+.sidebar {
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 40px 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border2) transparent;
+}
+
+.section-label {
+  font-size: 9px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--text3);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.section-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* Occasion grid */
+.occasion-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+}
+
+.occasion-chip {
+  padding: 10px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+  font-family: 'DM Sans', sans-serif;
+}
+
+.occasion-chip:hover {
+  border-color: var(--border2);
+  background: var(--surface);
+}
+
+.occasion-chip.active {
+  border-color: var(--gold-dim);
+  background: rgba(201,169,110,0.06);
+}
+
+.occasion-emoji { font-size: 18px; display: block; margin-bottom: 4px; }
+.occasion-label { font-size: 10px; color: var(--text2); letter-spacing: 0.3px; }
+.occasion-chip.active .occasion-label { color: var(--gold); }
+
+/* Venue toggle */
+.venue-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.venue-btn {
+  padding: 10px 6px;
+  border: none;
+  background: transparent;
+  color: var(--text3);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: 'DM Sans', sans-serif;
+  letter-spacing: 0.3px;
+  border-right: 1px solid var(--border);
+}
+
+.venue-btn:last-child { border-right: none; }
+.venue-btn:hover { background: var(--surface); color: var(--text2); }
+.venue-btn.active { background: var(--gold); color: var(--bg); font-weight: 500; }
+
+/* Input styles */
+.input-row { position: relative; }
+
+.fancy-input {
+  width: 100%;
+  padding: 11px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: 'DM Sans', sans-serif;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.fancy-input::placeholder { color: var(--text3); }
+.fancy-input:focus { border-color: var(--gold-dim); }
+
+.input-suffix {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 16px;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+
+.input-suffix:hover { opacity: 1; }
+
+/* Slider */
+.slider-track { position: relative; }
+.slider-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 10px;
+}
+
+.slider-value {
+  font-family: 'DM Mono', monospace;
+  font-size: 14px;
+  color: var(--gold);
+}
+
+input[type=range] {
+  width: 100%;
+  height: 2px;
+  -webkit-appearance: none;
+  background: var(--border2);
+  border-radius: 1px;
+  outline: none;
+}
+
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--gold);
+  cursor: pointer;
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 0 2px var(--gold-dim);
+  transition: transform 0.15s;
+}
+
+input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
+
+.slider-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--text3);
+  letter-spacing: 0.5px;
+}
+
+/* Guest roster */
+.guest-mode-toggle {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.mode-pill {
+  padding: 4px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text3);
+  cursor: pointer;
+  transition: all 0.15s;
+  background: transparent;
+  font-family: 'DM Sans', sans-serif;
+}
+
+.mode-pill.active {
+  border-color: var(--gold-dim);
+  color: var(--gold);
+  background: rgba(201,169,110,0.06);
+}
+
+.guest-count-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.count-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  font-family: 'DM Sans', sans-serif;
+}
+
+.count-btn:hover { border-color: var(--border2); color: var(--text); }
+.count-num { font-family: 'DM Mono', monospace; font-size: 18px; color: var(--gold); min-width: 28px; text-align: center; }
+
+.guest-add-row { display: flex; gap: 6px; margin-bottom: 8px; }
+
+.add-btn {
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text2);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+  font-family: 'DM Sans', sans-serif;
+}
+
+.add-btn:hover { border-color: var(--border2); color: var(--text); }
+
+.guest-tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.guest-name { color: var(--text); flex: 1; }
+.guest-diet { font-size: 10px; color: var(--text3); }
+.remove-btn { color: var(--text3); cursor: pointer; font-size: 14px; }
+.remove-btn:hover { color: var(--coral); }
+
+/* Dietary tags */
+.diet-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.diet-pill {
+  padding: 5px 11px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text3);
+  cursor: pointer;
+  transition: all 0.15s;
+  background: transparent;
+}
+
+.diet-pill:hover { border-color: var(--border2); color: var(--text2); }
+.diet-pill.active { border-color: rgba(90,143,106,0.5); color: var(--green); background: var(--green-dim); }
+
+/* Notes */
+.notes-input {
+  width: 100%;
+  padding: 11px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: 'DM Sans', sans-serif;
+  outline: none;
+  resize: none;
+  transition: border-color 0.2s;
+  line-height: 1.6;
+}
+
+.notes-input::placeholder { color: var(--text3); }
+.notes-input:focus { border-color: var(--gold-dim); }
+
+/* CTA Button */
+.plan-btn {
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #c9a96e, #a8833f);
+  color: #0e0c0a;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: 'DM Sans', sans-serif;
+  position: relative;
+  overflow: hidden;
+}
+
+.plan-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.15), transparent);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.plan-btn:hover::before { opacity: 1; }
+.plan-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 32px rgba(201,169,110,0.25); }
+.plan-btn:active { transform: translateY(0); }
+.plan-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+/* ── PLAN PANEL ──────────────────────────────────── */
+.plan-panel {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border2) transparent;
+  position: relative;
+}
+
+/* Empty state */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 20px;
+  padding: 40px;
+}
+
+.empty-medallion {
+  width: 80px;
+  height: 80px;
+  border: 1px solid var(--border2);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.empty-medallion::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+}
+
+.empty-medallion::after {
+  content: '';
+  position: absolute;
+  inset: -16px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,220,160,0.04);
+}
+
+.empty-glyph {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 28px;
+  color: var(--gold);
+  font-style: italic;
+}
+
+.empty-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 32px;
+  font-weight: 300;
+  font-style: italic;
+  color: var(--text2);
+  text-align: center;
+}
+
+.empty-sub {
+  font-size: 13px;
+  color: var(--text3);
+  text-align: center;
+  max-width: 300px;
+  line-height: 1.7;
+}
+
+/* Plan content */
+.plan-content { padding: 48px 56px; max-width: 760px; }
+
+/* Brief */
+.plan-brief {
+  margin-bottom: 40px;
+  padding-bottom: 32px;
+  border-bottom: 1px solid var(--border);
+  animation: revealUp 0.6s ease both;
+}
+
+.plan-brief-text {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 22px;
+  font-weight: 300;
+  font-style: italic;
+  line-height: 1.65;
+  color: var(--text);
+}
+
+/* Timeline */
+.section-block {
+  margin-bottom: 36px;
+  animation: revealUp 0.6s ease both;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.section-ornament {
+  width: 20px;
+  height: 1px;
+  background: var(--gold);
+  opacity: 0.5;
+}
+
+.section-title {
+  font-size: 9px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--gold);
+  opacity: 0.7;
+}
+
+.timeline { display: flex; flex-direction: column; gap: 0; }
+
+.tl-item {
+  display: flex;
+  gap: 20px;
+  padding-bottom: 24px;
+  position: relative;
+}
+
+.tl-item:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 19px;
+  top: 40px;
+  bottom: 0;
+  width: 1px;
+  background: linear-gradient(to bottom, var(--border2), transparent);
+}
+
+.tl-node {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--border2);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.tl-body { flex: 1; padding-top: 8px; }
+.tl-time { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text3); letter-spacing: 1px; margin-bottom: 3px; }
+.tl-title { font-size: 14px; font-weight: 500; color: var(--text); margin-bottom: 4px; }
+.tl-detail { font-size: 12px; color: var(--text2); line-height: 1.6; }
+
+/* Service cards */
+.service-cards { display: flex; flex-direction: column; gap: 12px; }
+
+.service-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--surface);
+  transition: border-color 0.2s;
+}
+
+.service-card:hover { border-color: var(--border2); }
+
+.card-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.card-api-badge {
+  margin-left: auto;
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 20px;
+  font-family: 'DM Mono', monospace;
+}
+
+.badge-dineout { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(196,136,58,0.2); }
+.badge-food { background: var(--coral-dim); color: var(--coral); border: 1px solid rgba(212,97,74,0.2); }
+.badge-instamart { background: var(--green-dim); color: var(--green); border: 1px solid rgba(90,143,106,0.2); }
+
+.card-title { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text2); }
+.card-body { padding: 18px 20px; font-size: 13px; color: var(--text2); line-height: 1.8; white-space: pre-wrap; }
+
+/* Offers */
+.offers-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  align-items: start;
+}
+
+.savings-chip {
+  padding: 8px 16px;
+  background: var(--green-dim);
+  border: 1px solid rgba(90,143,106,0.2);
+  border-radius: 20px;
+  font-family: 'DM Mono', monospace;
+  font-size: 13px;
+  color: var(--green);
+  white-space: nowrap;
+}
+
+/* Cost breakdown */
+.cost-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.cost-item {
+  background: var(--surface);
+  padding: 14px 16px;
+  text-align: center;
+}
+
+.cost-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--text3); margin-bottom: 6px; }
+.cost-value { font-family: 'DM Mono', monospace; font-size: 15px; color: var(--text); }
+
+.cost-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+}
+
+.cost-total-label { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--text3); }
+.cost-total-value { font-family: 'Cormorant Garamond', serif; font-size: 28px; font-weight: 400; color: var(--gold); }
+
+/* Health note */
+.health-note {
+  padding: 14px 18px;
+  background: rgba(90,143,106,0.05);
+  border: 1px solid rgba(90,143,106,0.15);
+  border-radius: 10px;
+  font-size: 12px;
+  color: rgba(90,143,106,0.85);
+  line-height: 1.7;
+  margin-top: 8px;
+}
+
+/* Action row */
+.action-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 32px;
+  padding-top: 28px;
+  border-top: 1px solid var(--border);
+  animation: revealUp 0.6s ease both;
+}
+
+.action-secondary {
+  padding: 11px 22px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text2);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: 'DM Sans', sans-serif;
+  letter-spacing: 0.5px;
+}
+
+.action-secondary:hover { border-color: var(--border2); color: var(--text); }
+
+.action-primary {
+  padding: 11px 28px;
+  border: 1px solid var(--gold-dim);
+  border-radius: 10px;
+  background: rgba(201,169,110,0.06);
+  color: var(--gold);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: 'DM Sans', sans-serif;
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.action-primary:hover { background: rgba(201,169,110,0.1); }
+.phase-tag { font-size: 9px; color: var(--gold-dim); letter-spacing: 1px; }
+
+/* Chat panel */
+.chat-panel {
+  margin-top: 32px;
+  padding-top: 28px;
+  border-top: 1px solid var(--border);
+  animation: revealUp 0.6s ease both;
+}
+
+.chat-label {
+  font-size: 9px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--text3);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.chat-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+.suggestion-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+
+.suggestion-chip {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 11px;
+  color: var(--text3);
+  cursor: pointer;
+  transition: all 0.15s;
+  background: transparent;
+  font-family: 'DM Sans', sans-serif;
+}
+
+.suggestion-chip:hover { border-color: var(--gold-dim); color: var(--gold); }
+
+.chat-messages { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; max-height: 280px; overflow-y: auto; }
+
+.chat-msg { display: flex; gap: 10px; animation: revealUp 0.3s ease both; }
+.chat-msg.user { flex-direction: row-reverse; }
+
+.chat-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.chat-avatar.ai { border-color: var(--gold-dim); color: var(--gold); background: rgba(201,169,110,0.04); }
+.chat-avatar.user-av { color: var(--text3); }
+
+.chat-bubble {
+  max-width: 76%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  border: 1px solid var(--border);
+}
+
+.chat-bubble.ai { background: var(--surface); color: var(--text2); border-radius: 4px 12px 12px 12px; }
+.chat-bubble.user-b { background: rgba(201,169,110,0.06); border-color: var(--gold-dim); color: var(--text); border-radius: 12px 4px 12px 12px; }
+
+.chat-input-row { display: flex; gap: 8px; }
+
+.chat-input {
+  flex: 1;
+  padding: 10px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: 'DM Sans', sans-serif;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.chat-input::placeholder { color: var(--text3); }
+.chat-input:focus { border-color: var(--gold-dim); }
+
+.chat-send {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid var(--gold-dim);
+  background: rgba(201,169,110,0.06);
+  color: var(--gold);
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-send:hover { background: rgba(201,169,110,0.12); }
+.chat-send:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* Streaming animation */
+.streaming-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  color: var(--text3);
+  font-size: 12px;
+}
+
+.streaming-dots { display: flex; gap: 4px; }
+.streaming-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--gold);
+  opacity: 0.4;
+  animation: dot-pulse 1.4s ease-in-out infinite;
+}
+
+.streaming-dot:nth-child(2) { animation-delay: 0.2s; }
+.streaming-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes dot-pulse {
+  0%, 100% { opacity: 0.2; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+
+@keyframes revealUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Loading state */
+.loading-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--gold), var(--coral));
+  transition: width 0.3s;
+  z-index: 200;
+  box-shadow: 0 0 8px var(--gold);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div class="loading-bar" id="loadingBar" style="width:0%"></div>
+
+<header>
+  <div class="logo">
+    <div class="logo-mark">✦</div>
+    <span class="logo-text">SOIRÉE</span>
+  </div>
+  <div class="logo-sub">Life Events Concierge</div>
+  <div class="swiggy-badge">
+    <div class="swiggy-dot"></div>
+    Powered by Swiggy MCP
+  </div>
+</header>
+
+<div class="main">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+
+    <!-- Occasion -->
+    <div>
+      <div class="section-label">Occasion</div>
+      <div class="occasion-grid" id="occasionGrid">
+        <div class="occasion-chip active" data-val="date" onclick="selectOccasion(this)">
+          <span class="occasion-emoji">🌹</span>
+          <span class="occasion-label">Date Night</span>
+        </div>
+        <div class="occasion-chip" data-val="friends" onclick="selectOccasion(this)">
+          <span class="occasion-emoji">🥂</span>
+          <span class="occasion-label">Friends</span>
+        </div>
+        <div class="occasion-chip" data-val="birthday" onclick="selectOccasion(this)">
+          <span class="occasion-emoji">🎂</span>
+          <span class="occasion-label">Birthday</span>
+        </div>
+        <div class="occasion-chip" data-val="corporate" onclick="selectOccasion(this)">
+          <span class="occasion-emoji">💼</span>
+          <span class="occasion-label">Corporate</span>
+        </div>
+        <div class="occasion-chip" data-val="house_party" onclick="selectOccasion(this)">
+          <span class="occasion-emoji">🏠</span>
+          <span class="occasion-label">House Party</span>
+        </div>
+        <div class="occasion-chip" data-val="family" onclick="selectOccasion(this)">
+          <span class="occasion-emoji">👨‍👩‍👧</span>
+          <span class="occasion-label">Family</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Venue mode -->
+    <div>
+      <div class="section-label">Experience Mode</div>
+      <div class="venue-toggle">
+        <button class="venue-btn" onclick="selectVenue(this,'out')">🍽 Dine Out</button>
+        <button class="venue-btn active" onclick="selectVenue(this,'hybrid')">✦ Hybrid</button>
+        <button class="venue-btn" onclick="selectVenue(this,'home')">🏠 Stay In</button>
+      </div>
+    </div>
+
+    <!-- Location -->
+    <div>
+      <div class="section-label">Location</div>
+      <div class="input-row">
+        <input type="text" class="fancy-input" id="locationInput" placeholder="City or area, e.g. Lucknow" style="padding-right:40px">
+        <span class="input-suffix" onclick="detectLocation()" title="Detect location">📍</span>
+      </div>
+    </div>
+
+    <!-- Guests -->
+    <div>
+      <div class="section-label">Guests</div>
+      <div class="guest-mode-toggle">
+        <button class="mode-pill active" id="countPill" onclick="setGuestMode('count')">Headcount</button>
+        <button class="mode-pill" id="namedPill" onclick="setGuestMode('named')">Add names</button>
+      </div>
+      <div id="countMode">
+        <div class="guest-count-row">
+          <button class="count-btn" onclick="adjustCount(-1)">−</button>
+          <span class="count-num" id="countNum">2</span>
+          <button class="count-btn" onclick="adjustCount(1)">+</button>
+          <span style="font-size:12px;color:var(--text3)">people</span>
+        </div>
+      </div>
+      <div id="namedMode" style="display:none">
+        <div class="guest-add-row">
+          <input type="text" class="fancy-input" id="guestNameInput" placeholder="Guest name" onkeydown="if(event.key==='Enter')addGuest()" style="flex:1">
+          <button class="add-btn" onclick="addGuest()">Add</button>
+        </div>
+        <div id="guestList"></div>
+      </div>
+    </div>
+
+    <!-- Dietary -->
+    <div>
+      <div class="section-label">Dietary needs</div>
+      <div class="diet-pills" id="dietPills">
+        <div class="diet-pill" onclick="toggleDiet(this)">Veg</div>
+        <div class="diet-pill" onclick="toggleDiet(this)">Vegan</div>
+        <div class="diet-pill" onclick="toggleDiet(this)">Jain</div>
+        <div class="diet-pill" onclick="toggleDiet(this)">Keto</div>
+        <div class="diet-pill" onclick="toggleDiet(this)">Gluten-Free</div>
+        <div class="diet-pill" onclick="toggleDiet(this)">Halal</div>
+        <div class="diet-pill" onclick="toggleDiet(this)">No Nuts</div>
+      </div>
+    </div>
+
+    <!-- Budget -->
+    <div>
+      <div class="section-label">Budget</div>
+      <div class="slider-track">
+        <div class="slider-header">
+          <span style="font-size:11px;color:var(--text3)">Total for the evening</span>
+          <span class="slider-value" id="budgetVal">₹3,000</span>
+        </div>
+        <input type="range" min="500" max="15000" step="100" value="3000"
+          oninput="document.getElementById('budgetVal').textContent='₹'+parseInt(this.value).toLocaleString('en-IN')">
+        <div class="slider-labels"><span>₹500</span><span>₹15,000</span></div>
+      </div>
+    </div>
+
+    <!-- Time -->
+    <div>
+      <div class="section-label">Start time</div>
+      <div class="slider-track">
+        <div class="slider-header">
+          <span style="font-size:11px;color:var(--text3)">Evening begins at</span>
+          <span class="slider-value" id="timeVal">8:00 PM</span>
+        </div>
+        <input type="range" min="12" max="23" step="1" value="20"
+          oninput="updateTime(this.value)" id="timeSlider">
+        <div class="slider-labels"><span>12 PM</span><span>11 PM</span></div>
+      </div>
+    </div>
+
+    <!-- Health -->
+    <div>
+      <div class="section-label">Vibe</div>
+      <div class="slider-track">
+        <div class="slider-header">
+          <span style="font-size:11px;color:var(--text3)">Indulgent ↔ Mindful</span>
+          <span class="slider-value" id="healthVal" style="font-size:12px;color:var(--text2)">Balanced</span>
+        </div>
+        <input type="range" min="0" max="100" step="5" value="50"
+          oninput="updateHealth(this.value)">
+      </div>
+    </div>
+
+    <!-- Notes -->
+    <div>
+      <div class="section-label">Special notes</div>
+      <textarea class="notes-input" id="notesInput" rows="2"
+        placeholder="e.g. 'It's our anniversary' or 'One guest has nut allergy'"></textarea>
+    </div>
+
+    <button class="plan-btn" id="planBtn" onclick="generatePlan()">
+      ✦ &nbsp; PLAN MY EVENING
+    </button>
+
+  </aside>
+
+  <!-- PLAN PANEL -->
+  <section class="plan-panel" id="planPanel">
+
+    <div class="empty-state" id="emptyState">
+      <div class="empty-medallion">
+        <span class="empty-glyph">✦</span>
+      </div>
+      <p class="empty-title">Your evening,<br>curated.</p>
+      <p class="empty-sub">Configure your event and let Soirée orchestrate every detail — from table reservations to grocery deliveries.</p>
+    </div>
+
+    <div class="plan-content" id="planContent" style="display:none"></div>
+
+  </section>
+
+</div>
+
+<script>
+// ── STATE ────────────────────────────────────────────────────────
+const state = {
+  eventType: 'date',
+  venueMode: 'hybrid',
+  location: '',
+  startHour: 20,
+  budget: 3000,
+  guestCount: 2,
+  guests: [],
+  guestMode: 'count',
+  dietaryTags: [],
+  healthFocus: 50,
+  notes: '',
+  isStreaming: false,
+  chatMessages: [],
+  planGenerated: false,
+};
+
+// ── FORM HANDLERS ────────────────────────────────────────────────
+function selectOccasion(el) {
+  document.querySelectorAll('.occasion-chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  state.eventType = el.dataset.val;
+}
+
+function selectVenue(el, val) {
+  document.querySelectorAll('.venue-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  state.venueMode = val;
+}
+
+function adjustCount(delta) {
+  state.guestCount = Math.max(1, Math.min(100, state.guestCount + delta));
+  document.getElementById('countNum').textContent = state.guestCount;
+}
+
+function setGuestMode(mode) {
+  state.guestMode = mode;
+  document.getElementById('countPill').classList.toggle('active', mode === 'count');
+  document.getElementById('namedPill').classList.toggle('active', mode === 'named');
+  document.getElementById('countMode').style.display = mode === 'count' ? 'block' : 'none';
+  document.getElementById('namedMode').style.display = mode === 'named' ? 'block' : 'none';
+}
+
+function addGuest() {
+  const input = document.getElementById('guestNameInput');
+  const name = input.value.trim();
+  if (!name) return;
+  state.guests.push({ name, dietary_tags: [] });
+  renderGuestList();
+  input.value = '';
+}
+
+function removeGuest(i) {
+  state.guests.splice(i, 1);
+  renderGuestList();
+}
+
+function renderGuestList() {
+  const el = document.getElementById('guestList');
+  el.innerHTML = state.guests.map((g, i) => `
+    <div class="guest-tag">
+      <span class="guest-name">${g.name}</span>
+      <span class="guest-diet">${g.dietary_tags.join(', ') || 'No restrictions'}</span>
+      <span class="remove-btn" onclick="removeGuest(${i})">×</span>
+    </div>
+  `).join('');
+}
+
+function toggleDiet(el) {
+  el.classList.toggle('active');
+  const tag = el.textContent;
+  if (el.classList.contains('active')) {
+    state.dietaryTags.push(tag);
+  } else {
+    state.dietaryTags = state.dietaryTags.filter(t => t !== tag);
+  }
+}
+
+function updateTime(val) {
+  state.startHour = parseInt(val);
+  const h = state.startHour;
+  const display = h >= 12 ? `${h === 12 ? 12 : h - 12}:00 PM` : `${h}:00 AM`;
+  document.getElementById('timeVal').textContent = display;
+}
+
+function updateHealth(val) {
+  state.healthFocus = parseInt(val);
+  const label = state.healthFocus >= 70 ? 'Mindful' : state.healthFocus <= 30 ? 'Indulgent' : 'Balanced';
+  document.getElementById('healthVal').textContent = label;
+}
+
+async function detectLocation() {
+  if (!navigator.geolocation) return;
+  try {
+    const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej));
+    const { latitude, longitude } = pos.coords;
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`);
+    const d = await r.json();
+    const city = d.address?.city || d.address?.town || d.address?.suburb || 'Your location';
+    document.getElementById('locationInput').value = city;
+    state.location = city;
+  } catch { }
+}
+
+// ── LOADING BAR ──────────────────────────────────────────────────
+let loadProgress = 0;
+let loadInterval = null;
+
+function startLoading() {
+  loadProgress = 0;
+  const bar = document.getElementById('loadingBar');
+  bar.style.width = '0%';
+  loadInterval = setInterval(() => {
+    loadProgress = Math.min(loadProgress + Math.random() * 3, 85);
+    bar.style.width = loadProgress + '%';
+  }, 200);
+}
+
+function finishLoading() {
+  clearInterval(loadInterval);
+  const bar = document.getElementById('loadingBar');
+  bar.style.width = '100%';
+  setTimeout(() => { bar.style.width = '0%'; }, 600);
+}
+
+// ── PARSE PLAN ───────────────────────────────────────────────────
+function getSection(text, marker) {
+  const cleaned = text.split('⏎').join('\n');
+  const regex = new RegExp(`\\[${marker}\\]\\n?([\\s\\S]*?)(?=\\n?\\[[A-Z]+\\]|$)`);
+  const match = cleaned.match(regex);
+  return match ? match[1].trim() : '';
+}
+
+function parseTimeline(raw) {
+  return raw.split('\n')
+    .filter(l => l.includes('|'))
+    .map(l => {
+      const p = l.split('|').map(s => s.trim());
+      return { time: p[0], emoji: p[1] || '●', title: p[2] || '', detail: p[3] || '' };
+    })
+    .filter(s => s.title);
+}
+
+function parsePlan(raw) {
+  const cleaned = raw.replace(/^data:\s*/gm, '').split('⏎').join('\n');
+  return {
+    brief: getSection(cleaned, 'BRIEF'),
+    timeline: parseTimeline(getSection(cleaned, 'TIMELINE')),
+    dineout: getSection(cleaned, 'DINEOUT'),
+    food: getSection(cleaned, 'FOOD'),
+    instamart: getSection(cleaned, 'INSTAMART'),
+    health: getSection(cleaned, 'HEALTH'),
+    offers: getSection(cleaned, 'OFFERS'),
+    cost: getSection(cleaned, 'COST'),
+    totalCost: (getSection(cleaned, 'COST').match(/TOTAL:\s*(₹[\d,]+)/) || [])[1] || '',
+    totalSavings: (getSection(cleaned, 'OFFERS').match(/TOTAL SAVINGS:\s*(₹[\d,]+)/) || [])[1] || '',
+  };
+}
+
+// ── RENDER PLAN ──────────────────────────────────────────────────
+function renderPlan(plan) {
+  const content = document.getElementById('planContent');
+  let html = '';
+
+  if (plan.brief) {
+    html += `<div class="plan-brief">
+      <p class="plan-brief-text">${plan.brief}</p>
+    </div>`;
+  }
+
+  if (plan.timeline.length) {
+    html += `<div class="section-block">
+      <div class="section-head">
+        <div class="section-ornament"></div>
+        <span class="section-title">Evening Timeline</span>
+      </div>
+      <div class="timeline">
+        ${plan.timeline.map(s => `
+          <div class="tl-item">
+            <div class="tl-node">${s.emoji}</div>
+            <div class="tl-body">
+              <div class="tl-time">${s.time}</div>
+              <div class="tl-title">${s.title}</div>
+              <div class="tl-detail">${s.detail}</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>`;
+  }
+
+  html += `<div class="section-block"><div class="service-cards">`;
+
+  if (plan.dineout) {
+    html += `<div class="service-card">
+      <div class="card-header">
+        <span class="card-title">Dineout Reservation</span>
+        <span class="card-api-badge badge-dineout">DINEOUT API</span>
+      </div>
+      <div class="card-body">${plan.dineout}</div>
+    </div>`;
+  }
+
+  if (plan.food) {
+    html += `<div class="service-card">
+      <div class="card-header">
+        <span class="card-title">Food Delivery</span>
+        <span class="card-api-badge badge-food">FOOD API</span>
+      </div>
+      <div class="card-body">${plan.food}</div>
+    </div>`;
+  }
+
+  if (plan.instamart) {
+    html += `<div class="service-card">
+      <div class="card-header">
+        <span class="card-title">Instamart Cart</span>
+        <span class="card-api-badge badge-instamart">INSTAMART API</span>
+      </div>
+      <div class="card-body">${plan.instamart}</div>
+    </div>`;
+  }
+
+  html += `</div></div>`;
+
+  if (plan.offers) {
+    html += `<div class="section-block">
+      <div class="section-head">
+        <div class="section-ornament"></div>
+        <span class="section-title">Offers & Savings</span>
+        ${plan.totalSavings ? `<span class="savings-chip">${plan.totalSavings} saved</span>` : ''}
+      </div>
+      <div class="card-body" style="padding:0;color:var(--text2);font-size:13px;line-height:1.8">${plan.offers}</div>
+    </div>`;
+  }
+
+  if (plan.cost) {
+    const parts = plan.cost.match(/(Dineout:\s*₹[\d,]+)\s*\|\s*(Food Delivery:\s*₹[\d,]+)\s*\|\s*(Instamart:\s*₹[\d,]+)/);
+    html += `<div class="section-block">
+      <div class="section-head">
+        <div class="section-ornament"></div>
+        <span class="section-title">Cost Breakdown</span>
+      </div>
+      ${parts ? `
+      <div class="cost-grid">
+        ${parts.slice(1).map(p => {
+          const [label, val] = p.split(':').map(s => s.trim());
+          return `<div class="cost-item">
+            <div class="cost-label">${label}</div>
+            <div class="cost-value">${val}</div>
+          </div>`;
+        }).join('')}
+      </div>` : ''}
+      ${plan.totalCost ? `
+      <div class="cost-total">
+        <span class="cost-total-label">Total for the evening</span>
+        <span class="cost-total-value">${plan.totalCost}</span>
+      </div>` : ''}
+    </div>`;
+  }
+
+  if (plan.health) {
+    html += `<div class="health-note">💚 ${plan.health}</div>`;
+  }
+
+  html += `
+  <div class="action-row">
+    <button class="action-secondary" onclick="resetPlan()">↺ New plan</button>
+    <button class="action-primary">
+      ✓ Approve & Order
+      <span class="phase-tag">PHASE 2</span>
+    </button>
+  </div>
+  <div class="chat-panel" id="chatPanel">
+    <div class="chat-label">Refine your plan</div>
+    <div class="suggestion-chips">
+      ${['Make it more romantic','Switch to Italian','Add cocktail pairings','We added a vegan guest','Reduce budget by ₹500'].map(s =>
+        `<button class="suggestion-chip" onclick="sendSuggestion('${s}')">${s}</button>`
+      ).join('')}
+    </div>
+    <div class="chat-messages" id="chatMessages"></div>
+    <div class="chat-input-row">
+      <input type="text" class="chat-input" id="chatInput"
+        placeholder="Ask anything — 'make it more romantic', 'switch to Italian'..."
+        onkeydown="if(event.key==='Enter')sendChat()">
+      <button class="chat-send" id="chatSend" onclick="sendChat()">↑</button>
+    </div>
+  </div>`;
+
+  content.innerHTML = html;
+  document.getElementById('emptyState').style.display = 'none';
+  content.style.display = 'block';
+}
+
+// ── GENERATE PLAN ────────────────────────────────────────────────
+async function generatePlan() {
+  state.location = document.getElementById('locationInput').value.trim();
+  state.budget = parseInt(document.querySelector('input[type=range]').value);
+  state.notes = document.getElementById('notesInput').value.trim();
+
+  if (!state.location) {
+    document.getElementById('locationInput').focus();
+    document.getElementById('locationInput').style.borderColor = 'var(--coral)';
+    setTimeout(() => document.getElementById('locationInput').style.borderColor = '', 2000);
+    return;
+  }
+
+  const btn = document.getElementById('planBtn');
+  btn.disabled = true;
+  btn.textContent = '✦   PLANNING YOUR EVENING...';
+  state.isStreaming = true;
+  startLoading();
+
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('planContent').style.display = 'none';
+
+  const request = {
+    event_type: state.eventType,
+    venue_mode: state.venueMode,
+    location: state.location,
+    start_hour: state.startHour,
+    budget: state.budget,
+    guest_count: state.guestMode === 'named' ? state.guests.length || 2 : state.guestCount,
+    guests: state.guestMode === 'named' ? state.guests : [],
+    dietary_tags: state.dietaryTags,
+    health_focus: state.healthFocus,
+    notes: state.notes || null,
+  };
+
+  try {
+    const response = await fetch('/api/v1/plans/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) throw new Error(`${response.status}`);
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    let accumulated = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() ?? '';
+      for (const part of parts) {
+        const lines = part.split('\n').filter(l => l.startsWith('data: '));
+        if (!lines.length) continue;
+        const content = lines.map(l => l.slice(6)).join('\n');
+        if (content.trim() === '[DONE]') break;
+        if (content.startsWith('PLAN_ID:')) continue;
+        if (content.startsWith('[ERROR]')) throw new Error(content.slice(8));
+        if (content.trim()) accumulated += content;
+      }
+    }
+
+    reader.releaseLock();
+    const plan = parsePlan(accumulated);
+    renderPlan(plan);
+    state.planGenerated = true;
+    state.lastRequest = request;
+
+  } catch (e) {
+    document.getElementById('planContent').style.display = 'block';
+    document.getElementById('planContent').innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:60vh;gap:16px">
+        <p style="color:var(--coral);font-size:14px">Something went wrong: ${e.message}</p>
+        <button class="action-secondary" onclick="resetPlan()">Try again</button>
+      </div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '✦ \u00A0 PLAN MY EVENING';
+    state.isStreaming = false;
+    finishLoading();
+  }
+}
+
+function resetPlan() {
+  document.getElementById('emptyState').style.display = 'flex';
+  document.getElementById('planContent').style.display = 'none';
+  state.planGenerated = false;
+  state.chatMessages = [];
+}
+
+// ── CHAT ─────────────────────────────────────────────────────────
+function sendSuggestion(text) {
+  document.getElementById('chatInput').value = text;
+  sendChat();
+}
+
+async function sendChat() {
+  const input = document.getElementById('chatInput');
+  const msg = input.value.trim();
+  if (!msg || state.isStreaming) return;
+  input.value = '';
+
+  appendChatMsg('user', msg);
+  state.chatMessages.push({ role: 'user', content: msg });
+
+  const typingId = appendChatMsg('ai', null, true);
+  state.isStreaming = true;
+  document.getElementById('chatSend').disabled = true;
+
+  try {
+    const response = await fetch('/api/v1/plans/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_message: msg,
+        event_data: state.lastRequest || {},
+        conversation_history: state.chatMessages.slice(0, -1),
+      }),
+    });
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    let reply = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() ?? '';
+      for (const part of parts) {
+        const lines = part.split('\n').filter(l => l.startsWith('data: '));
+        if (!lines.length) continue;
+        const content = lines.map(l => l.slice(6)).join('\n').replace(/⏎/g, '\n');
+        if (content.trim() === '[DONE]') break;
+        if (content.trim()) {
+          reply += content;
+          updateChatMsg(typingId, reply);
+        }
+      }
+    }
+
+    reader.releaseLock();
+    state.chatMessages.push({ role: 'assistant', content: reply });
+
+  } catch (e) {
+    updateChatMsg(typingId, 'Sorry, something went wrong.');
+  } finally {
+    state.isStreaming = false;
+    document.getElementById('chatSend').disabled = false;
+  }
+}
+
+let msgCounter = 0;
+function appendChatMsg(role, text, typing = false) {
+  const id = 'msg-' + (++msgCounter);
+  const container = document.getElementById('chatMessages');
+  const isUser = role === 'user';
+  const div = document.createElement('div');
+  div.className = `chat-msg ${isUser ? 'user' : ''}`;
+  div.id = id;
+  div.innerHTML = `
+    <div class="chat-avatar ${isUser ? 'user-av' : 'ai'}">${isUser ? '↑' : '✦'}</div>
+    <div class="chat-bubble ${isUser ? 'user-b' : 'ai'}">
+      ${typing ? '<span class="streaming-dots"><span class="streaming-dot"></span><span class="streaming-dot"></span><span class="streaming-dot"></span></span>' : (text || '')}
+    </div>`;
+  container.appendChild(div);
+  div.scrollIntoView({ behavior: 'smooth' });
+  return id;
+}
+
+function updateChatMsg(id, text) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.querySelector('.chat-bubble').textContent = text;
+}
+</script>
+</body>
+</html>
