@@ -5,29 +5,38 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Soirée — Life Events Concierge</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500;1,600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #0e0c0a;
-  --surface: #161310;
-  --surface2: #1e1a16;
-  --border: rgba(255,220,160,0.08);
-  --border2: rgba(255,220,160,0.15);
+  --bg: #0b0907;
+  --surface: #131009;
+  --surface2: #1a1510;
+  --surface3: #221c14;
+  --border: rgba(255,215,140,0.07);
+  --border2: rgba(255,215,140,0.14);
+  --border3: rgba(255,215,140,0.25);
   --gold: #c9a96e;
-  --gold-light: #e8c98a;
-  --gold-dim: rgba(201,169,110,0.3);
-  --text: #f0e8d8;
-  --text2: rgba(240,232,216,0.55);
-  --text3: rgba(240,232,216,0.28);
-  --coral: #d4614a;
-  --coral-dim: rgba(212,97,74,0.15);
-  --green: #5a8f6a;
-  --green-dim: rgba(90,143,106,0.12);
-  --amber: #c4883a;
-  --amber-dim: rgba(196,136,58,0.12);
+  --gold2: #e8c98a;
+  --gold3: #f5dfa0;
+  --gold-dim: rgba(201,169,110,0.25);
+  --gold-glow: rgba(201,169,110,0.12);
+  --text: #f2eadb;
+  --text2: rgba(242,234,219,0.52);
+  --text3: rgba(242,234,219,0.26);
+  --text4: rgba(242,234,219,0.12);
+  --coral: #c95a42;
+  --coral2: #e06a50;
+  --coral-dim: rgba(201,90,66,0.12);
+  --green: #4d8060;
+  --green2: #5e9b74;
+  --green-dim: rgba(77,128,96,0.1);
+  --amber: #b87a30;
+  --amber-dim: rgba(184,122,48,0.1);
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
 
 body {
   background: var(--bg);
@@ -35,202 +44,352 @@ body {
   font-family: 'DM Sans', sans-serif;
   min-height: 100vh;
   overflow-x: hidden;
+  cursor: default;
 }
 
-/* Grain texture overlay */
-body::before {
+/* ── AMBIENT BACKGROUND ─────────────────────── */
+.ambient {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.ambient-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(120px);
+  opacity: 0;
+  animation: orbFloat 12s ease-in-out infinite;
+}
+
+.orb1 { width: 600px; height: 600px; background: radial-gradient(circle, rgba(201,169,110,0.06), transparent); top: -200px; right: -100px; animation-delay: 0s; }
+.orb2 { width: 400px; height: 400px; background: radial-gradient(circle, rgba(201,90,66,0.05), transparent); bottom: 100px; left: -100px; animation-delay: 4s; }
+.orb3 { width: 300px; height: 300px; background: radial-gradient(circle, rgba(77,128,96,0.04), transparent); top: 40%; left: 40%; animation-delay: 8s; }
+
+@keyframes orbFloat {
+  0%, 100% { opacity: 0; transform: scale(0.8) translate(0, 0); }
+  30% { opacity: 1; }
+  50% { opacity: 1; transform: scale(1.1) translate(20px, -20px); }
+  70% { opacity: 0.7; }
+}
+
+/* Grain */
+body::after {
   content: '';
   position: fixed;
   inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
   pointer-events: none;
-  z-index: 100;
-  opacity: 0.4;
+  z-index: 999;
+  opacity: 0.5;
 }
 
-/* ── HEADER ─────────────────────────────────────── */
+/* ── LOADING SCREEN ──────────────────────────── */
+#loadScreen {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  transition: opacity 0.8s ease, visibility 0.8s ease;
+}
+
+#loadScreen.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+
+.load-logo {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 52px;
+  font-weight: 300;
+  letter-spacing: 12px;
+  color: transparent;
+  background: linear-gradient(135deg, var(--gold), var(--gold3), var(--gold));
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: logoReveal 1.2s ease both;
+}
+
+@keyframes logoReveal {
+  from { opacity: 0; letter-spacing: 24px; filter: blur(8px); }
+  to { opacity: 1; letter-spacing: 12px; filter: blur(0); }
+}
+
+.load-line {
+  width: 120px;
+  height: 1px;
+  background: var(--border2);
+  position: relative;
+  overflow: hidden;
+}
+
+.load-line::after {
+  content: '';
+  position: absolute;
+  left: -100%;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+  animation: lineSwipe 1.2s ease 0.4s forwards;
+}
+
+@keyframes lineSwipe {
+  to { left: 100%; }
+}
+
+.load-sub {
+  font-size: 11px;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  color: var(--text3);
+  animation: fadeIn 0.8s ease 0.8s both;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── HEADER ──────────────────────────────────── */
 header {
   display: flex;
   align-items: center;
-  padding: 28px 48px;
+  padding: 24px 48px;
   border-bottom: 1px solid var(--border);
   position: relative;
+  z-index: 10;
+  animation: slideDown 0.6s ease 1.8s both;
+  backdrop-filter: blur(20px);
+  background: rgba(11,9,7,0.8);
+  position: sticky;
+  top: 0;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-20px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .logo {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 16px;
 }
 
-.logo-mark {
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--gold-dim);
+.logo-ring {
+  position: relative;
+  width: 36px;
+  height: 36px;
+}
+
+.logo-ring svg {
+  position: absolute;
+  inset: 0;
+  animation: rotateSlow 10s linear infinite;
+}
+
+.logo-ring-inner {
+  position: absolute;
+  inset: 6px;
   border-radius: 50%;
+  background: var(--gold-glow);
+  border: 1px solid var(--gold-dim);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 13px;
   color: var(--gold);
-  position: relative;
 }
 
-.logo-mark::after {
-  content: '';
-  position: absolute;
-  inset: -4px;
-  border-radius: 50%;
-  border: 1px solid var(--gold-dim);
-  animation: spin-slow 8s linear infinite;
-}
+@keyframes rotateSlow { to { transform: rotate(360deg); } }
 
-@keyframes spin-slow {
-  to { transform: rotate(360deg); }
-}
-
-.logo-text {
+.logo-wordmark {
   font-family: 'Cormorant Garamond', serif;
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 400;
-  letter-spacing: 3px;
-  color: var(--text);
+  letter-spacing: 4px;
+  background: linear-gradient(135deg, var(--gold2), var(--gold3));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
-.logo-sub {
-  font-size: 10px;
-  letter-spacing: 3px;
-  text-transform: uppercase;
-  color: var(--text3);
+.header-right {
   margin-left: auto;
-}
-
-.swiggy-badge {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  border: 1px solid var(--border2);
-  border-radius: 20px;
-  font-size: 11px;
-  color: var(--gold);
-  letter-spacing: 1px;
+  gap: 16px;
 }
 
-.swiggy-dot {
+.live-badge {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 14px;
+  border: 1px solid var(--border2);
+  border-radius: 20px;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text2);
+}
+
+.live-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--coral);
-  animation: pulse 2s ease-in-out infinite;
+  background: var(--green2);
+  box-shadow: 0 0 6px var(--green2);
+  animation: livePulse 2s ease-in-out infinite;
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.8); }
+@keyframes livePulse {
+  0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 6px var(--green2); }
+  50% { opacity: 0.6; transform: scale(0.85); box-shadow: 0 0 2px var(--green2); }
 }
 
-/* ── LAYOUT ──────────────────────────────────────── */
-.main {
+.mcp-pills { display: flex; gap: 6px; }
+
+.mcp-pill {
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  font-family: 'DM Mono', monospace;
+  transition: all 0.2s;
+}
+
+.mcp-pill:hover { transform: translateY(-1px); }
+.pill-food { background: var(--coral-dim); color: var(--coral2); border: 1px solid rgba(201,90,66,0.2); }
+.pill-instamart { background: var(--green-dim); color: var(--green2); border: 1px solid rgba(77,128,96,0.2); }
+.pill-dineout { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(184,122,48,0.2); }
+
+/* ── LAYOUT ──────────────────────────────────── */
+.app {
   display: grid;
-  grid-template-columns: 420px 1fr;
-  height: calc(100vh - 89px);
+  grid-template-columns: 400px 1fr;
+  height: calc(100vh - 73px);
+  position: relative;
+  z-index: 1;
+  animation: fadeIn 0.6s ease 2s both;
 }
 
-/* ── SIDEBAR ─────────────────────────────────────── */
+/* ── SIDEBAR ─────────────────────────────────── */
 .sidebar {
   border-right: 1px solid var(--border);
   overflow-y: auto;
-  padding: 40px 36px;
+  padding: 36px 32px 40px;
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 28px;
   scrollbar-width: thin;
   scrollbar-color: var(--border2) transparent;
+  background: rgba(11,9,7,0.5);
 }
 
-.section-label {
+.field-group { display: flex; flex-direction: column; gap: 0; }
+
+.field-label {
   font-size: 9px;
   letter-spacing: 3px;
   text-transform: uppercase;
   color: var(--text3);
-  margin-bottom: 14px;
+  margin-bottom: 12px;
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.section-label::after {
+.field-label::after {
   content: '';
   flex: 1;
   height: 1px;
-  background: var(--border);
+  background: linear-gradient(to right, var(--border2), transparent);
 }
 
-/* Occasion grid */
+/* Occasion */
 .occasion-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 6px;
 }
 
 .occasion-chip {
-  padding: 10px 8px;
+  padding: 11px 8px;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  background: transparent;
+  border-radius: 12px;
+  background: var(--surface);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
   text-align: center;
-  font-family: 'DM Sans', sans-serif;
+  position: relative;
+  overflow: hidden;
 }
 
-.occasion-chip:hover {
-  border-color: var(--border2);
-  background: var(--surface);
+.occasion-chip::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, var(--gold-glow), transparent);
+  opacity: 0;
+  transition: opacity 0.3s;
 }
+
+.occasion-chip:hover { border-color: var(--border2); transform: translateY(-2px); }
+.occasion-chip:hover::before { opacity: 1; }
 
 .occasion-chip.active {
   border-color: var(--gold-dim);
-  background: rgba(201,169,110,0.06);
+  background: var(--surface2);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(201,169,110,0.08);
 }
 
-.occasion-emoji { font-size: 18px; display: block; margin-bottom: 4px; }
-.occasion-label { font-size: 10px; color: var(--text2); letter-spacing: 0.3px; }
+.occasion-chip.active::before { opacity: 1; }
+
+.occasion-emoji { font-size: 20px; display: block; margin-bottom: 5px; transition: transform 0.2s; }
+.occasion-chip:hover .occasion-emoji { transform: scale(1.2); }
+.occasion-chip.active .occasion-emoji { transform: scale(1.1); }
+.occasion-label { font-size: 10px; color: var(--text3); letter-spacing: 0.3px; transition: color 0.2s; }
+.occasion-chip:hover .occasion-label { color: var(--text2); }
 .occasion-chip.active .occasion-label { color: var(--gold); }
 
-/* Venue toggle */
-.venue-toggle {
+/* Venue */
+.venue-wrap {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: hidden;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
 }
 
 .venue-btn {
   padding: 10px 6px;
-  border: none;
-  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
   color: var(--text3);
   font-size: 11px;
   cursor: pointer;
   transition: all 0.2s;
   font-family: 'DM Sans', sans-serif;
   letter-spacing: 0.3px;
-  border-right: 1px solid var(--border);
+  text-align: center;
 }
 
-.venue-btn:last-child { border-right: none; }
-.venue-btn:hover { background: var(--surface); color: var(--text2); }
-.venue-btn.active { background: var(--gold); color: var(--bg); font-weight: 500; }
+.venue-btn:hover { border-color: var(--border2); color: var(--text2); background: var(--surface2); }
+.venue-btn.active { background: var(--gold); color: var(--bg); border-color: var(--gold); font-weight: 500; box-shadow: 0 4px 16px var(--gold-dim); }
 
-/* Input styles */
-.input-row { position: relative; }
+/* Input */
+.input-wrap { position: relative; }
 
-.fancy-input {
+.inp {
   width: 100%;
-  padding: 11px 16px;
+  padding: 11px 40px 11px 16px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -238,123 +397,80 @@ header {
   font-size: 13px;
   font-family: 'DM Sans', sans-serif;
   outline: none;
-  transition: border-color 0.2s;
+  transition: all 0.2s;
 }
 
-.fancy-input::placeholder { color: var(--text3); }
-.fancy-input:focus { border-color: var(--gold-dim); }
+.inp::placeholder { color: var(--text4); }
+.inp:focus { border-color: var(--gold-dim); background: var(--surface2); box-shadow: 0 0 0 3px rgba(201,169,110,0.04); }
 
-.input-suffix {
+.inp-icon {
   position: absolute;
   right: 12px;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 16px;
+  font-size: 15px;
   cursor: pointer;
-  opacity: 0.5;
-  transition: opacity 0.2s;
+  opacity: 0.4;
+  transition: all 0.2s;
 }
 
-.input-suffix:hover { opacity: 1; }
+.inp-icon:hover { opacity: 1; transform: translateY(-50%) scale(1.2); }
 
-/* Slider */
-.slider-track { position: relative; }
-.slider-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  margin-bottom: 10px;
-}
+/* Guest mode */
+.guest-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
 
-.slider-value {
-  font-family: 'DM Mono', monospace;
-  font-size: 14px;
-  color: var(--gold);
-}
-
-input[type=range] {
-  width: 100%;
-  height: 2px;
-  -webkit-appearance: none;
-  background: var(--border2);
-  border-radius: 1px;
-  outline: none;
-}
-
-input[type=range]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--gold);
-  cursor: pointer;
-  border: 2px solid var(--bg);
-  box-shadow: 0 0 0 2px var(--gold-dim);
-  transition: transform 0.15s;
-}
-
-input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
-
-.slider-labels {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 6px;
-  font-size: 10px;
-  color: var(--text3);
-  letter-spacing: 0.5px;
-}
-
-/* Guest roster */
-.guest-mode-toggle {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 12px;
-}
-
-.mode-pill {
-  padding: 4px 12px;
+.gtab {
+  padding: 5px 14px;
   border-radius: 20px;
   border: 1px solid var(--border);
   font-size: 11px;
   color: var(--text3);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.2s;
   background: transparent;
   font-family: 'DM Sans', sans-serif;
 }
 
-.mode-pill.active {
-  border-color: var(--gold-dim);
-  color: var(--gold);
-  background: rgba(201,169,110,0.06);
-}
+.gtab:hover { border-color: var(--border2); color: var(--text2); }
+.gtab.active { border-color: var(--gold-dim); color: var(--gold); background: var(--gold-glow); }
 
-.guest-count-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
+.count-row { display: flex; align-items: center; gap: 14px; }
 
-.count-btn {
-  width: 30px;
-  height: 30px;
+.ctn-btn {
+  width: 32px;
+  height: 32px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: transparent;
+  background: var(--surface);
   color: var(--text2);
   cursor: pointer;
-  font-size: 16px;
+  font-size: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s;
+  transition: all 0.2s;
   font-family: 'DM Sans', sans-serif;
+  line-height: 1;
 }
 
-.count-btn:hover { border-color: var(--border2); color: var(--text); }
-.count-num { font-family: 'DM Mono', monospace; font-size: 18px; color: var(--gold); min-width: 28px; text-align: center; }
+.ctn-btn:hover { border-color: var(--gold-dim); color: var(--gold); background: var(--surface2); transform: scale(1.1); }
+.ctn-btn:active { transform: scale(0.95); }
 
-.guest-add-row { display: flex; gap: 6px; margin-bottom: 8px; }
+.ctn-num {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 28px;
+  font-weight: 400;
+  color: var(--gold);
+  min-width: 32px;
+  text-align: center;
+  transition: all 0.15s;
+}
+
+.ctn-num.bump { animation: numBump 0.2s ease; }
+@keyframes numBump { 0%,100%{transform:scale(1)} 50%{transform:scale(1.3)} }
+
+/* Named guests */
+.guest-add { display: flex; gap: 6px; margin-bottom: 8px; }
 
 .add-btn {
   padding: 8px 14px;
@@ -364,14 +480,14 @@ input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
   color: var(--text2);
   font-size: 12px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.2s;
   white-space: nowrap;
   font-family: 'DM Sans', sans-serif;
 }
 
-.add-btn:hover { border-color: var(--border2); color: var(--text); }
+.add-btn:hover { border-color: var(--gold-dim); color: var(--gold); }
 
-.guest-tag {
+.guest-item {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -381,32 +497,85 @@ input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
   border-radius: 8px;
   margin-bottom: 6px;
   font-size: 12px;
+  animation: slideInLeft 0.3s ease both;
 }
 
-.guest-name { color: var(--text); flex: 1; }
-.guest-diet { font-size: 10px; color: var(--text3); }
-.remove-btn { color: var(--text3); cursor: pointer; font-size: 14px; }
-.remove-btn:hover { color: var(--coral); }
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
 
-/* Dietary tags */
-.diet-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.guest-name { flex: 1; color: var(--text); }
+.remove-x { color: var(--text3); cursor: pointer; font-size: 16px; transition: all 0.15s; }
+.remove-x:hover { color: var(--coral); transform: rotate(90deg); }
 
-.diet-pill {
-  padding: 5px 11px;
+/* Diet pills */
+.diet-row { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.dpill {
+  padding: 5px 12px;
   border-radius: 20px;
   border: 1px solid var(--border);
   font-size: 11px;
   color: var(--text3);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.2s;
   background: transparent;
+  position: relative;
+  overflow: hidden;
 }
 
-.diet-pill:hover { border-color: var(--border2); color: var(--text2); }
-.diet-pill.active { border-color: rgba(90,143,106,0.5); color: var(--green); background: var(--green-dim); }
+.dpill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--green-dim);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.2s;
+}
 
-/* Notes */
-.notes-input {
+.dpill:hover { border-color: var(--border2); color: var(--text2); }
+.dpill.active { border-color: rgba(94,155,116,0.5); color: var(--green2); }
+.dpill.active::after { transform: scaleX(1); }
+.dpill span { position: relative; z-index: 1; }
+
+/* Sliders */
+.slider-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+.slider-note { font-size: 11px; color: var(--text3); }
+.slider-val { font-family: 'DM Mono', monospace; font-size: 14px; color: var(--gold); }
+
+input[type=range] {
+  width: 100%;
+  height: 2px;
+  -webkit-appearance: none;
+  background: linear-gradient(to right, var(--gold) 0%, var(--gold) var(--pct, 50%), var(--border2) var(--pct, 50%));
+  border-radius: 1px;
+  outline: none;
+  cursor: pointer;
+}
+
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bg);
+  border: 2px solid var(--gold);
+  box-shadow: 0 0 0 3px var(--gold-dim), 0 2px 8px rgba(0,0,0,0.4);
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+input[type=range]::-webkit-slider-thumb:hover {
+  transform: scale(1.3);
+  box-shadow: 0 0 0 5px var(--gold-dim), 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.slider-marks { display: flex; justify-content: space-between; margin-top: 6px; font-size: 10px; color: var(--text4); letter-spacing: 0.5px; }
+
+/* Textarea */
+.notes-ta {
   width: 100%;
   padding: 11px 16px;
   background: var(--surface);
@@ -417,47 +586,70 @@ input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
   font-family: 'DM Sans', sans-serif;
   outline: none;
   resize: none;
-  transition: border-color 0.2s;
-  line-height: 1.6;
+  transition: all 0.2s;
+  line-height: 1.7;
 }
 
-.notes-input::placeholder { color: var(--text3); }
-.notes-input:focus { border-color: var(--gold-dim); }
+.notes-ta::placeholder { color: var(--text4); }
+.notes-ta:focus { border-color: var(--gold-dim); background: var(--surface2); }
 
-/* CTA Button */
-.plan-btn {
+/* CTA */
+.plan-cta {
   width: 100%;
-  padding: 14px;
+  padding: 15px;
   border: none;
   border-radius: 12px;
-  background: linear-gradient(135deg, #c9a96e, #a8833f);
-  color: #0e0c0a;
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: 1.5px;
+  background: linear-gradient(135deg, #c9a96e 0%, #e8c98a 50%, #c9a96e 100%);
+  background-size: 200% 100%;
+  color: #0b0907;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 2.5px;
   text-transform: uppercase;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.3s;
   font-family: 'DM Sans', sans-serif;
   position: relative;
   overflow: hidden;
+  margin-top: 4px;
 }
 
-.plan-btn::before {
+.plan-cta::before {
   content: '';
   position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, rgba(255,255,255,0.15), transparent);
-  opacity: 0;
-  transition: opacity 0.2s;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  transition: left 0.5s;
 }
 
-.plan-btn:hover::before { opacity: 1; }
-.plan-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 32px rgba(201,169,110,0.25); }
-.plan-btn:active { transform: translateY(0); }
-.plan-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+.plan-cta:hover {
+  background-position: right center;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(201,169,110,0.3), 0 2px 8px rgba(0,0,0,0.3);
+}
 
-/* ── PLAN PANEL ──────────────────────────────────── */
+.plan-cta:hover::before { left: 100%; }
+.plan-cta:active { transform: translateY(0); }
+.plan-cta:disabled { opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none; }
+
+.cta-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(11,9,7,0.3);
+  border-top-color: #0b0907;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── PLAN PANEL ──────────────────────────────── */
 .plan-panel {
   overflow-y: auto;
   scrollbar-width: thin;
@@ -467,104 +659,213 @@ input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
 
 /* Empty state */
 .empty-state {
+  height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100%;
-  gap: 20px;
-  padding: 40px;
+  gap: 24px;
+  padding: 60px;
+  animation: fadeIn 0.8s ease 2.2s both;
 }
 
-.empty-medallion {
-  width: 80px;
-  height: 80px;
-  border: 1px solid var(--border2);
-  border-radius: 50%;
+.empty-rings {
+  position: relative;
+  width: 100px;
+  height: 100px;
   display: flex;
   align-items: center;
   justify-content: center;
-  position: relative;
 }
 
-.empty-medallion::before {
-  content: '';
+.ring {
   position: absolute;
-  inset: -8px;
   border-radius: 50%;
   border: 1px solid var(--border);
+  animation: ringPulse 3s ease-in-out infinite;
 }
 
-.empty-medallion::after {
-  content: '';
-  position: absolute;
-  inset: -16px;
+.ring1 { inset: 0; animation-delay: 0s; }
+.ring2 { inset: -12px; opacity: 0.6; animation-delay: 0.5s; }
+.ring3 { inset: -24px; opacity: 0.3; animation-delay: 1s; }
+
+@keyframes ringPulse {
+  0%, 100% { transform: scale(1); opacity: var(--base-opacity, 1); }
+  50% { transform: scale(1.05); opacity: calc(var(--base-opacity, 1) * 1.5); }
+}
+
+.empty-glyph-wrap {
+  width: 100px;
+  height: 100px;
   border-radius: 50%;
-  border: 1px solid rgba(255,220,160,0.04);
-}
-
-.empty-glyph {
-  font-family: 'Cormorant Garamond', serif;
-  font-size: 28px;
-  color: var(--gold);
-  font-style: italic;
-}
-
-.empty-title {
+  background: var(--gold-glow);
+  border: 1px solid var(--gold-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-family: 'Cormorant Garamond', serif;
   font-size: 32px;
+  font-style: italic;
+  color: var(--gold);
+  position: relative;
+  z-index: 1;
+}
+
+.empty-heading {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 36px;
   font-weight: 300;
   font-style: italic;
   color: var(--text2);
   text-align: center;
+  line-height: 1.2;
 }
 
 .empty-sub {
   font-size: 13px;
   color: var(--text3);
   text-align: center;
-  max-width: 300px;
-  line-height: 1.7;
+  max-width: 320px;
+  line-height: 1.8;
 }
 
-/* Plan content */
-.plan-content { padding: 48px 56px; max-width: 760px; }
+.empty-features {
+  display: flex;
+  gap: 24px;
+  margin-top: 8px;
+}
 
-/* Brief */
+.empty-feat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+
+.empty-feat:hover { opacity: 1; }
+.empty-feat-icon { font-size: 20px; }
+.empty-feat-label { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--text3); }
+
+/* ── PLAN CONTENT ────────────────────────────── */
+.plan-content { padding: 48px 56px; max-width: 780px; display: none; }
+
+/* Generating state */
+.generating-state {
+  padding: 60px 56px;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+}
+
+.gen-rings {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gen-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px solid transparent;
+  animation: genSpin 2s linear infinite;
+}
+
+.gen-ring1 { inset: 0; border-top-color: var(--gold); animation-duration: 1.5s; }
+.gen-ring2 { inset: 8px; border-right-color: var(--gold-dim); animation-duration: 2s; animation-direction: reverse; }
+.gen-ring3 { inset: 16px; border-bottom-color: rgba(201,169,110,0.15); animation-duration: 3s; }
+
+@keyframes genSpin { to { transform: rotate(360deg); } }
+
+.gen-center {
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 22px;
+  font-style: italic;
+  color: var(--gold);
+  position: absolute;
+}
+
+.gen-label {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 22px;
+  font-style: italic;
+  color: var(--text2);
+  text-align: center;
+}
+
+.gen-steps { display: flex; flex-direction: column; gap: 8px; width: 280px; }
+
+.gen-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text3);
+  transition: all 0.4s;
+  padding: 6px 12px;
+  border-radius: 8px;
+}
+
+.gen-step.active { color: var(--text); background: var(--surface); }
+.gen-step.done { color: var(--green2); }
+
+.gen-step-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text4);
+  flex-shrink: 0;
+  transition: all 0.4s;
+}
+
+.gen-step.active .gen-step-dot { background: var(--gold); box-shadow: 0 0 6px var(--gold); animation: dotPulse 1s ease-in-out infinite; }
+.gen-step.done .gen-step-dot { background: var(--green2); box-shadow: none; animation: none; }
+
+@keyframes dotPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.5); opacity: 0.7; }
+}
+
+/* ── BRIEF ───────────────────────────────────── */
 .plan-brief {
   margin-bottom: 40px;
   padding-bottom: 32px;
   border-bottom: 1px solid var(--border);
-  animation: revealUp 0.6s ease both;
 }
 
-.plan-brief-text {
+.brief-text {
   font-family: 'Cormorant Garamond', serif;
-  font-size: 22px;
+  font-size: 23px;
   font-weight: 300;
   font-style: italic;
   line-height: 1.65;
   color: var(--text);
 }
 
-/* Timeline */
-.section-block {
-  margin-bottom: 36px;
-  animation: revealUp 0.6s ease both;
-}
+/* ── SECTIONS ────────────────────────────────── */
+.plan-section { margin-bottom: 36px; }
 
-.section-head {
+.section-header {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   margin-bottom: 20px;
 }
 
-.section-ornament {
-  width: 20px;
+.section-line {
+  width: 28px;
   height: 1px;
-  background: var(--gold);
-  opacity: 0.5;
+  background: linear-gradient(to right, var(--gold), transparent);
 }
 
 .section-title {
@@ -572,26 +873,28 @@ input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
   letter-spacing: 3px;
   text-transform: uppercase;
   color: var(--gold);
-  opacity: 0.7;
+  opacity: 0.65;
 }
 
-.timeline { display: flex; flex-direction: column; gap: 0; }
+/* Timeline */
+.timeline { display: flex; flex-direction: column; }
 
-.tl-item {
+.tl-row {
   display: flex;
   gap: 20px;
-  padding-bottom: 24px;
+  padding-bottom: 20px;
   position: relative;
+  cursor: default;
 }
 
-.tl-item:not(:last-child)::before {
+.tl-row:not(:last-child)::before {
   content: '';
   position: absolute;
   left: 19px;
-  top: 40px;
+  top: 42px;
   bottom: 0;
   width: 1px;
-  background: linear-gradient(to bottom, var(--border2), transparent);
+  background: linear-gradient(to bottom, var(--border2) 0%, transparent 100%);
 }
 
 .tl-node {
@@ -607,35 +910,58 @@ input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
   flex-shrink: 0;
   position: relative;
   z-index: 1;
+  transition: all 0.3s;
 }
 
-.tl-body { flex: 1; padding-top: 8px; }
-.tl-time { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text3); letter-spacing: 1px; margin-bottom: 3px; }
-.tl-title { font-size: 14px; font-weight: 500; color: var(--text); margin-bottom: 4px; }
-.tl-detail { font-size: 12px; color: var(--text2); line-height: 1.6; }
+.tl-row:hover .tl-node {
+  border-color: var(--gold-dim);
+  background: var(--surface2);
+  box-shadow: 0 0 16px var(--gold-dim);
+  transform: scale(1.1);
+}
 
-/* Service cards */
-.service-cards { display: flex; flex-direction: column; gap: 12px; }
+.tl-body { flex: 1; padding-top: 7px; }
+.tl-time { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text4); letter-spacing: 1px; margin-bottom: 3px; }
+.tl-title { font-size: 14px; font-weight: 500; color: var(--text); margin-bottom: 3px; transition: color 0.2s; }
+.tl-detail { font-size: 12px; color: var(--text2); line-height: 1.65; }
+.tl-row:hover .tl-title { color: var(--gold2); }
 
-.service-card {
+/* Cards */
+.card-stack { display: flex; flex-direction: column; gap: 10px; }
+
+.svc-card {
   border: 1px solid var(--border);
   border-radius: 14px;
   overflow: hidden;
   background: var(--surface);
-  transition: border-color 0.2s;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
 }
 
-.service-card:hover { border-color: var(--border2); }
+.svc-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at top right, var(--gold-glow), transparent 60%);
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
 
-.card-header {
-  padding: 14px 20px;
+.svc-card:hover { border-color: var(--border2); transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
+.svc-card:hover::before { opacity: 1; }
+
+.card-head {
+  padding: 13px 18px;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.card-api-badge {
+.card-title-text { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--text2); }
+
+.api-badge {
   margin-left: auto;
   font-size: 9px;
   letter-spacing: 1.5px;
@@ -643,36 +969,45 @@ input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
   padding: 3px 8px;
   border-radius: 20px;
   font-family: 'DM Mono', monospace;
+  transition: all 0.2s;
 }
 
-.badge-dineout { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(196,136,58,0.2); }
-.badge-food { background: var(--coral-dim); color: var(--coral); border: 1px solid rgba(212,97,74,0.2); }
-.badge-instamart { background: var(--green-dim); color: var(--green); border: 1px solid rgba(90,143,106,0.2); }
+.svc-card:hover .api-badge { transform: scale(1.05); }
 
-.card-title { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text2); }
-.card-body { padding: 18px 20px; font-size: 13px; color: var(--text2); line-height: 1.8; white-space: pre-wrap; }
+.badge-d { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(184,122,48,0.2); }
+.badge-f { background: var(--coral-dim); color: var(--coral2); border: 1px solid rgba(201,90,66,0.2); }
+.badge-i { background: var(--green-dim); color: var(--green2); border: 1px solid rgba(77,128,96,0.2); }
+
+.card-body {
+  padding: 16px 18px;
+  font-size: 13px;
+  color: var(--text2);
+  line-height: 1.85;
+  white-space: pre-wrap;
+}
 
 /* Offers */
-.offers-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 16px;
-  align-items: start;
-}
+.offers-header { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
 
-.savings-chip {
-  padding: 8px 16px;
+.savings-badge {
+  padding: 5px 14px;
   background: var(--green-dim);
-  border: 1px solid rgba(90,143,106,0.2);
+  border: 1px solid rgba(94,155,116,0.2);
   border-radius: 20px;
   font-family: 'DM Mono', monospace;
   font-size: 13px;
-  color: var(--green);
-  white-space: nowrap;
+  color: var(--green2);
+  margin-left: auto;
+  animation: savingsPop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
-/* Cost breakdown */
-.cost-grid {
+@keyframes savingsPop {
+  from { transform: scale(0.5); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* Cost */
+.cost-breakdown {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 1px;
@@ -682,51 +1017,86 @@ input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
   margin-bottom: 12px;
 }
 
-.cost-item {
+.cost-col {
   background: var(--surface);
   padding: 14px 16px;
   text-align: center;
+  transition: background 0.2s;
 }
 
-.cost-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--text3); margin-bottom: 6px; }
-.cost-value { font-family: 'DM Mono', monospace; font-size: 15px; color: var(--text); }
+.cost-col:hover { background: var(--surface2); }
+.cost-col-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--text3); margin-bottom: 8px; }
+.cost-col-val { font-family: 'DM Mono', monospace; font-size: 15px; color: var(--text); }
 
-.cost-total {
+.cost-total-row {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 14px 20px;
+  justify-content: space-between;
+  padding: 16px 20px;
   background: var(--surface2);
   border: 1px solid var(--border2);
-  border-radius: 10px;
+  border-radius: 12px;
+  position: relative;
+  overflow: hidden;
 }
 
-.cost-total-label { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--text3); }
-.cost-total-value { font-family: 'Cormorant Garamond', serif; font-size: 28px; font-weight: 400; color: var(--gold); }
+.cost-total-row::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, var(--gold-glow), transparent);
+}
+
+.cost-total-label { font-size: 10px; letter-spacing: 2.5px; text-transform: uppercase; color: var(--text3); position: relative; }
+
+.cost-total-val {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 32px;
+  font-weight: 400;
+  color: var(--gold2);
+  position: relative;
+  animation: countUp 0.6s ease both;
+}
+
+@keyframes countUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
 /* Health note */
 .health-note {
   padding: 14px 18px;
-  background: rgba(90,143,106,0.05);
-  border: 1px solid rgba(90,143,106,0.15);
-  border-radius: 10px;
+  border-radius: 12px;
+  background: rgba(77,128,96,0.05);
+  border: 1px solid rgba(77,128,96,0.15);
   font-size: 12px;
-  color: rgba(90,143,106,0.85);
-  line-height: 1.7;
+  color: rgba(94,155,116,0.85);
+  line-height: 1.75;
   margin-top: 8px;
+  position: relative;
+  overflow: hidden;
 }
 
-/* Action row */
+.health-note::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--green2);
+}
+
+/* Actions */
 .action-row {
   display: flex;
   gap: 10px;
-  margin-top: 32px;
+  margin-top: 36px;
   padding-top: 28px;
   border-top: 1px solid var(--border);
-  animation: revealUp 0.6s ease both;
 }
 
-.action-secondary {
+.btn-sec {
   padding: 11px 22px;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -734,22 +1104,22 @@ input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
   color: var(--text2);
   font-size: 12px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.2s;
   font-family: 'DM Sans', sans-serif;
   letter-spacing: 0.5px;
 }
 
-.action-secondary:hover { border-color: var(--border2); color: var(--text); }
+.btn-sec:hover { border-color: var(--border2); color: var(--text); background: var(--surface); transform: translateY(-1px); }
 
-.action-primary {
+.btn-pri {
   padding: 11px 28px;
   border: 1px solid var(--gold-dim);
   border-radius: 10px;
-  background: rgba(201,169,110,0.06);
-  color: var(--gold);
+  background: var(--gold-glow);
+  color: var(--gold2);
   font-size: 12px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.2s;
   font-family: 'DM Sans', sans-serif;
   letter-spacing: 0.5px;
   display: flex;
@@ -757,18 +1127,17 @@ input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
   gap: 8px;
 }
 
-.action-primary:hover { background: rgba(201,169,110,0.1); }
-.phase-tag { font-size: 9px; color: var(--gold-dim); letter-spacing: 1px; }
+.btn-pri:hover { background: rgba(201,169,110,0.12); border-color: var(--gold); transform: translateY(-1px); box-shadow: 0 4px 20px var(--gold-dim); }
+.phase-note { font-size: 9px; color: var(--text4); letter-spacing: 1px; }
 
-/* Chat panel */
-.chat-panel {
-  margin-top: 32px;
+/* ── CHAT ────────────────────────────────────── */
+.chat-section {
+  margin-top: 36px;
   padding-top: 28px;
   border-top: 1px solid var(--border);
-  animation: revealUp 0.6s ease both;
 }
 
-.chat-label {
+.chat-section-label {
   font-size: 9px;
   letter-spacing: 3px;
   text-transform: uppercase;
@@ -776,62 +1145,70 @@ input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
   margin-bottom: 16px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
-.chat-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.chat-section-label::after { content: ''; flex: 1; height: 1px; background: linear-gradient(to right, var(--border2), transparent); }
 
-.suggestion-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
 
-.suggestion-chip {
+.chip {
   padding: 6px 14px;
   border: 1px solid var(--border);
   border-radius: 20px;
   font-size: 11px;
   color: var(--text3);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.2s;
   background: transparent;
   font-family: 'DM Sans', sans-serif;
 }
 
-.suggestion-chip:hover { border-color: var(--gold-dim); color: var(--gold); }
+.chip:hover { border-color: var(--gold-dim); color: var(--gold); background: var(--gold-glow); transform: translateY(-1px); }
 
-.chat-messages { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; max-height: 280px; overflow-y: auto; }
+.chat-msgs { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; max-height: 300px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border2) transparent; }
 
-.chat-msg { display: flex; gap: 10px; animation: revealUp 0.3s ease both; }
+.chat-msg { display: flex; gap: 10px; animation: slideInLeft 0.3s ease both; }
 .chat-msg.user { flex-direction: row-reverse; }
 
-.chat-avatar {
+.chat-av {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  border: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 11px;
   flex-shrink: 0;
-}
-
-.chat-avatar.ai { border-color: var(--gold-dim); color: var(--gold); background: rgba(201,169,110,0.04); }
-.chat-avatar.user-av { color: var(--text3); }
-
-.chat-bubble {
-  max-width: 76%;
-  padding: 10px 14px;
-  border-radius: 12px;
-  font-size: 13px;
-  line-height: 1.6;
   border: 1px solid var(--border);
 }
 
-.chat-bubble.ai { background: var(--surface); color: var(--text2); border-radius: 4px 12px 12px 12px; }
-.chat-bubble.user-b { background: rgba(201,169,110,0.06); border-color: var(--gold-dim); color: var(--text); border-radius: 12px 4px 12px 12px; }
+.chat-av.ai { border-color: var(--gold-dim); color: var(--gold); background: var(--gold-glow); }
+.chat-av.usr { color: var(--text3); background: var(--surface); }
 
-.chat-input-row { display: flex; gap: 8px; }
+.chat-bub {
+  max-width: 78%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.65;
+  border: 1px solid var(--border);
+  transition: border-color 0.2s;
+}
 
-.chat-input {
+.chat-bub:hover { border-color: var(--border2); }
+.chat-bub.ai { background: var(--surface); color: var(--text2); border-radius: 4px 12px 12px 12px; }
+.chat-bub.usr { background: var(--gold-glow); border-color: var(--gold-dim); color: var(--text); border-radius: 12px 4px 12px 12px; }
+
+.typing-dots { display: flex; gap: 4px; padding: 4px 0; }
+.td { width: 5px; height: 5px; border-radius: 50%; background: var(--gold); opacity: 0.4; animation: td 1.2s ease-in-out infinite; }
+.td:nth-child(2) { animation-delay: 0.2s; }
+.td:nth-child(3) { animation-delay: 0.4s; }
+@keyframes td { 0%,100%{opacity:0.2;transform:translateY(0)} 50%{opacity:1;transform:translateY(-4px)} }
+
+.chat-input-wrap { display: flex; gap: 8px; }
+
+.chat-inp {
   flex: 1;
   padding: 10px 16px;
   background: var(--surface);
@@ -841,239 +1218,245 @@ input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
   font-size: 13px;
   font-family: 'DM Sans', sans-serif;
   outline: none;
-  transition: border-color 0.2s;
+  transition: all 0.2s;
 }
 
-.chat-input::placeholder { color: var(--text3); }
-.chat-input:focus { border-color: var(--gold-dim); }
+.chat-inp::placeholder { color: var(--text4); }
+.chat-inp:focus { border-color: var(--gold-dim); background: var(--surface2); box-shadow: 0 0 0 3px rgba(201,169,110,0.04); }
 
 .chat-send {
   width: 40px;
   height: 40px;
   border-radius: 10px;
   border: 1px solid var(--gold-dim);
-  background: rgba(201,169,110,0.06);
+  background: var(--gold-glow);
   color: var(--gold);
   cursor: pointer;
-  font-size: 14px;
-  transition: all 0.15s;
+  font-size: 15px;
+  transition: all 0.2s;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.chat-send:hover { background: rgba(201,169,110,0.12); }
-.chat-send:disabled { opacity: 0.3; cursor: not-allowed; }
+.chat-send:hover { background: rgba(201,169,110,0.15); transform: translateY(-1px); box-shadow: 0 4px 16px var(--gold-dim); }
+.chat-send:disabled { opacity: 0.3; cursor: not-allowed; transform: none; box-shadow: none; }
 
-/* Streaming animation */
-.streaming-indicator {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 0;
-  color: var(--text3);
-  font-size: 12px;
+/* ── REVEAL ANIMATIONS ───────────────────────── */
+.reveal {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.streaming-dots { display: flex; gap: 4px; }
-.streaming-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--gold);
-  opacity: 0.4;
-  animation: dot-pulse 1.4s ease-in-out infinite;
-}
+.reveal.visible { opacity: 1; transform: translateY(0); }
 
-.streaming-dot:nth-child(2) { animation-delay: 0.2s; }
-.streaming-dot:nth-child(3) { animation-delay: 0.4s; }
-
-@keyframes dot-pulse {
-  0%, 100% { opacity: 0.2; transform: scale(0.8); }
-  50% { opacity: 1; transform: scale(1.2); }
-}
-
-@keyframes revealUp {
-  from { opacity: 0; transform: translateY(16px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* Loading state */
-.loading-bar {
+/* Loading bar */
+#topBar {
   position: fixed;
   top: 0;
   left: 0;
   height: 2px;
-  background: linear-gradient(90deg, var(--gold), var(--coral));
-  transition: width 0.3s;
-  z-index: 200;
-  box-shadow: 0 0 8px var(--gold);
+  width: 0%;
+  background: linear-gradient(90deg, var(--gold), var(--gold3), var(--coral2));
+  z-index: 10000;
+  transition: width 0.3s ease;
+  box-shadow: 0 0 10px var(--gold);
 }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border3); }
+
+/* Tooltip */
+[data-tip] { position: relative; }
+[data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  background: var(--surface3);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text2);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 100;
+}
 </style>
 </head>
 <body>
 
-<div class="loading-bar" id="loadingBar" style="width:0%"></div>
+<div id="topBar"></div>
 
+<!-- Loading screen -->
+<div id="loadScreen">
+  <div class="load-logo">SOIRÉE</div>
+  <div class="load-line"></div>
+  <div class="load-sub">Life Events Concierge · Powered by Swiggy MCP</div>
+</div>
+
+<!-- Ambient background -->
+<div class="ambient">
+  <div class="ambient-orb orb1"></div>
+  <div class="ambient-orb orb2"></div>
+  <div class="ambient-orb orb3"></div>
+</div>
+
+<!-- Header -->
 <header>
   <div class="logo">
-    <div class="logo-mark">✦</div>
-    <span class="logo-text">SOIRÉE</span>
+    <div class="logo-ring">
+      <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="18" cy="18" r="16" stroke="rgba(201,169,110,0.2)" stroke-width="1" stroke-dasharray="4 3"/>
+      </svg>
+      <div class="logo-ring-inner">✦</div>
+    </div>
+    <span class="logo-wordmark">SOIRÉE</span>
   </div>
-  <div class="logo-sub">Life Events Concierge</div>
-  <div class="swiggy-badge">
-    <div class="swiggy-dot"></div>
-    Powered by Swiggy MCP
+  <div class="header-right">
+    <div class="mcp-pills">
+      <span class="mcp-pill pill-food" data-tip="Food delivery API">Food</span>
+      <span class="mcp-pill pill-instamart" data-tip="Grocery delivery API">Instamart</span>
+      <span class="mcp-pill pill-dineout" data-tip="Table reservation API">Dineout</span>
+    </div>
+    <div class="live-badge">
+      <div class="live-dot"></div>
+      Swiggy MCP Live
+    </div>
   </div>
 </header>
 
-<div class="main">
+<div class="app">
 
   <!-- SIDEBAR -->
   <aside class="sidebar">
 
-    <!-- Occasion -->
-    <div>
-      <div class="section-label">Occasion</div>
+    <div class="field-group">
+      <div class="field-label">Occasion</div>
       <div class="occasion-grid" id="occasionGrid">
-        <div class="occasion-chip active" data-val="date" onclick="selectOccasion(this)">
+        <div class="occasion-chip active" data-val="date" onclick="pick(this,'occasion')">
           <span class="occasion-emoji">🌹</span>
           <span class="occasion-label">Date Night</span>
         </div>
-        <div class="occasion-chip" data-val="friends" onclick="selectOccasion(this)">
+        <div class="occasion-chip" data-val="friends" onclick="pick(this,'occasion')">
           <span class="occasion-emoji">🥂</span>
           <span class="occasion-label">Friends</span>
         </div>
-        <div class="occasion-chip" data-val="birthday" onclick="selectOccasion(this)">
+        <div class="occasion-chip" data-val="birthday" onclick="pick(this,'occasion')">
           <span class="occasion-emoji">🎂</span>
           <span class="occasion-label">Birthday</span>
         </div>
-        <div class="occasion-chip" data-val="corporate" onclick="selectOccasion(this)">
+        <div class="occasion-chip" data-val="corporate" onclick="pick(this,'occasion')">
           <span class="occasion-emoji">💼</span>
           <span class="occasion-label">Corporate</span>
         </div>
-        <div class="occasion-chip" data-val="house_party" onclick="selectOccasion(this)">
+        <div class="occasion-chip" data-val="house_party" onclick="pick(this,'occasion')">
           <span class="occasion-emoji">🏠</span>
           <span class="occasion-label">House Party</span>
         </div>
-        <div class="occasion-chip" data-val="family" onclick="selectOccasion(this)">
+        <div class="occasion-chip" data-val="family" onclick="pick(this,'occasion')">
           <span class="occasion-emoji">👨‍👩‍👧</span>
           <span class="occasion-label">Family</span>
         </div>
       </div>
     </div>
 
-    <!-- Venue mode -->
-    <div>
-      <div class="section-label">Experience Mode</div>
-      <div class="venue-toggle">
-        <button class="venue-btn" onclick="selectVenue(this,'out')">🍽 Dine Out</button>
-        <button class="venue-btn active" onclick="selectVenue(this,'hybrid')">✦ Hybrid</button>
-        <button class="venue-btn" onclick="selectVenue(this,'home')">🏠 Stay In</button>
+    <div class="field-group">
+      <div class="field-label">Experience Mode</div>
+      <div class="venue-wrap">
+        <button class="venue-btn" onclick="pick(this,'venue','out')">🍽 Dine Out</button>
+        <button class="venue-btn active" onclick="pick(this,'venue','hybrid')">✦ Hybrid</button>
+        <button class="venue-btn" onclick="pick(this,'venue','home')">🏠 Stay In</button>
       </div>
     </div>
 
-    <!-- Location -->
-    <div>
-      <div class="section-label">Location</div>
-      <div class="input-row">
-        <input type="text" class="fancy-input" id="locationInput" placeholder="City or area, e.g. Lucknow" style="padding-right:40px">
-        <span class="input-suffix" onclick="detectLocation()" title="Detect location">📍</span>
+    <div class="field-group">
+      <div class="field-label">Location</div>
+      <div class="input-wrap">
+        <input type="text" class="inp" id="loc" placeholder="City or area, e.g. Lucknow" style="padding-right:42px">
+        <span class="inp-icon" onclick="gps()" data-tip="Detect my location">📍</span>
       </div>
     </div>
 
-    <!-- Guests -->
-    <div>
-      <div class="section-label">Guests</div>
-      <div class="guest-mode-toggle">
-        <button class="mode-pill active" id="countPill" onclick="setGuestMode('count')">Headcount</button>
-        <button class="mode-pill" id="namedPill" onclick="setGuestMode('named')">Add names</button>
+    <div class="field-group">
+      <div class="field-label">Guests</div>
+      <div class="guest-tabs">
+        <button class="gtab active" id="gtab-count" onclick="gMode('count')">Headcount</button>
+        <button class="gtab" id="gtab-named" onclick="gMode('named')">Named guests</button>
       </div>
-      <div id="countMode">
-        <div class="guest-count-row">
-          <button class="count-btn" onclick="adjustCount(-1)">−</button>
-          <span class="count-num" id="countNum">2</span>
-          <button class="count-btn" onclick="adjustCount(1)">+</button>
-          <span style="font-size:12px;color:var(--text3)">people</span>
+      <div id="gcount">
+        <div class="count-row">
+          <button class="ctn-btn" onclick="gc(-1)">−</button>
+          <span class="ctn-num" id="gnum">2</span>
+          <button class="ctn-btn" onclick="gc(1)">+</button>
+          <span style="font-size:12px;color:var(--text3);margin-left:4px">people</span>
         </div>
       </div>
-      <div id="namedMode" style="display:none">
-        <div class="guest-add-row">
-          <input type="text" class="fancy-input" id="guestNameInput" placeholder="Guest name" onkeydown="if(event.key==='Enter')addGuest()" style="flex:1">
-          <button class="add-btn" onclick="addGuest()">Add</button>
+      <div id="gnamed" style="display:none">
+        <div class="guest-add">
+          <input type="text" class="inp" id="gname" placeholder="Guest name" onkeydown="if(event.key==='Enter')addG()" style="flex:1;padding-right:16px">
+          <button class="add-btn" onclick="addG()">+ Add</button>
         </div>
-        <div id="guestList"></div>
+        <div id="glist"></div>
       </div>
     </div>
 
-    <!-- Dietary -->
-    <div>
-      <div class="section-label">Dietary needs</div>
-      <div class="diet-pills" id="dietPills">
-        <div class="diet-pill" onclick="toggleDiet(this)">Veg</div>
-        <div class="diet-pill" onclick="toggleDiet(this)">Vegan</div>
-        <div class="diet-pill" onclick="toggleDiet(this)">Jain</div>
-        <div class="diet-pill" onclick="toggleDiet(this)">Keto</div>
-        <div class="diet-pill" onclick="toggleDiet(this)">Gluten-Free</div>
-        <div class="diet-pill" onclick="toggleDiet(this)">Halal</div>
-        <div class="diet-pill" onclick="toggleDiet(this)">No Nuts</div>
+    <div class="field-group">
+      <div class="field-label">Dietary needs</div>
+      <div class="diet-row" id="dietRow">
+        <div class="dpill" onclick="toggleD(this)"><span>Veg</span></div>
+        <div class="dpill" onclick="toggleD(this)"><span>Vegan</span></div>
+        <div class="dpill" onclick="toggleD(this)"><span>Jain</span></div>
+        <div class="dpill" onclick="toggleD(this)"><span>Keto</span></div>
+        <div class="dpill" onclick="toggleD(this)"><span>Gluten-Free</span></div>
+        <div class="dpill" onclick="toggleD(this)"><span>Halal</span></div>
+        <div class="dpill" onclick="toggleD(this)"><span>No Nuts</span></div>
       </div>
     </div>
 
-    <!-- Budget -->
-    <div>
-      <div class="section-label">Budget</div>
-      <div class="slider-track">
-        <div class="slider-header">
-          <span style="font-size:11px;color:var(--text3)">Total for the evening</span>
-          <span class="slider-value" id="budgetVal">₹3,000</span>
-        </div>
-        <input type="range" min="500" max="15000" step="100" value="3000"
-          oninput="document.getElementById('budgetVal').textContent='₹'+parseInt(this.value).toLocaleString('en-IN')">
-        <div class="slider-labels"><span>₹500</span><span>₹15,000</span></div>
+    <div class="field-group">
+      <div class="field-label">Budget</div>
+      <div class="slider-head">
+        <span class="slider-note">Total for the evening</span>
+        <span class="slider-val" id="budgetDisplay">₹3,000</span>
       </div>
+      <input type="range" id="budgetSlider" min="500" max="15000" step="100" value="3000" oninput="updateSlider(this,'budgetDisplay','₹',true)">
+      <div class="slider-marks"><span>₹500</span><span>₹15,000</span></div>
     </div>
 
-    <!-- Time -->
-    <div>
-      <div class="section-label">Start time</div>
-      <div class="slider-track">
-        <div class="slider-header">
-          <span style="font-size:11px;color:var(--text3)">Evening begins at</span>
-          <span class="slider-value" id="timeVal">8:00 PM</span>
-        </div>
-        <input type="range" min="12" max="23" step="1" value="20"
-          oninput="updateTime(this.value)" id="timeSlider">
-        <div class="slider-labels"><span>12 PM</span><span>11 PM</span></div>
+    <div class="field-group">
+      <div class="field-label">Start time</div>
+      <div class="slider-head">
+        <span class="slider-note">Evening begins at</span>
+        <span class="slider-val" id="timeDisplay">8:00 PM</span>
       </div>
+      <input type="range" id="timeSlider" min="12" max="23" step="1" value="20" oninput="updateTime(this)">
+      <div class="slider-marks"><span>12 PM</span><span>11 PM</span></div>
     </div>
 
-    <!-- Health -->
-    <div>
-      <div class="section-label">Vibe</div>
-      <div class="slider-track">
-        <div class="slider-header">
-          <span style="font-size:11px;color:var(--text3)">Indulgent ↔ Mindful</span>
-          <span class="slider-value" id="healthVal" style="font-size:12px;color:var(--text2)">Balanced</span>
-        </div>
-        <input type="range" min="0" max="100" step="5" value="50"
-          oninput="updateHealth(this.value)">
+    <div class="field-group">
+      <div class="field-label">Vibe</div>
+      <div class="slider-head">
+        <span class="slider-note">Indulgent ↔ Mindful</span>
+        <span class="slider-val" id="vibeDisplay" style="font-size:12px;color:var(--text2)">Balanced</span>
       </div>
+      <input type="range" id="vibeSlider" min="0" max="100" step="5" value="50" oninput="updateVibe(this)">
+      <div class="slider-marks"><span>Indulgent</span><span>Mindful</span></div>
     </div>
 
-    <!-- Notes -->
-    <div>
-      <div class="section-label">Special notes</div>
-      <textarea class="notes-input" id="notesInput" rows="2"
-        placeholder="e.g. 'It's our anniversary' or 'One guest has nut allergy'"></textarea>
+    <div class="field-group">
+      <div class="field-label">Special notes</div>
+      <textarea class="notes-ta" id="notesTA" rows="2"
+        placeholder="e.g. 'It's our anniversary' or 'One guest has a nut allergy'"></textarea>
     </div>
 
-    <button class="plan-btn" id="planBtn" onclick="generatePlan()">
+    <button class="plan-cta" id="planCta" onclick="generate()">
       ✦ &nbsp; PLAN MY EVENING
     </button>
 
@@ -1082,153 +1465,246 @@ input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
   <!-- PLAN PANEL -->
   <section class="plan-panel" id="planPanel">
 
+    <!-- Empty state -->
     <div class="empty-state" id="emptyState">
-      <div class="empty-medallion">
-        <span class="empty-glyph">✦</span>
+      <div class="empty-rings">
+        <div class="ring ring1"></div>
+        <div class="ring ring2" style="--base-opacity:0.6"></div>
+        <div class="ring ring3" style="--base-opacity:0.3"></div>
+        <div class="empty-glyph-wrap">✦</div>
       </div>
-      <p class="empty-title">Your evening,<br>curated.</p>
-      <p class="empty-sub">Configure your event and let Soirée orchestrate every detail — from table reservations to grocery deliveries.</p>
+      <p class="empty-heading">Your evening,<br>curated.</p>
+      <p class="empty-sub">Configure your event and let Soirée orchestrate every detail — from rooftop reservations to 10-minute grocery deliveries.</p>
+      <div class="empty-features">
+        <div class="empty-feat" data-tip="Reserve a table">
+          <span class="empty-feat-icon">🍽</span>
+          <span class="empty-feat-label">Dineout</span>
+        </div>
+        <div class="empty-feat" data-tip="Gourmet delivery">
+          <span class="empty-feat-icon">🛵</span>
+          <span class="empty-feat-label">Food</span>
+        </div>
+        <div class="empty-feat" data-tip="10-min groceries">
+          <span class="empty-feat-icon">🛒</span>
+          <span class="empty-feat-label">Instamart</span>
+        </div>
+        <div class="empty-feat" data-tip="AI orchestration">
+          <span class="empty-feat-icon">✦</span>
+          <span class="empty-feat-label">AI Agent</span>
+        </div>
+      </div>
     </div>
 
-    <div class="plan-content" id="planContent" style="display:none"></div>
+    <!-- Generating state -->
+    <div class="generating-state" id="genState">
+      <div class="gen-rings">
+        <div class="gen-ring gen-ring1"></div>
+        <div class="gen-ring gen-ring2"></div>
+        <div class="gen-ring gen-ring3"></div>
+        <div class="gen-center">✦</div>
+      </div>
+      <p class="gen-label" id="genLabel">Orchestrating your evening...</p>
+      <div class="gen-steps">
+        <div class="gen-step" id="step1"><div class="gen-step-dot"></div>Calling Swiggy MCP servers in parallel</div>
+        <div class="gen-step" id="step2"><div class="gen-step-dot"></div>Fetching live offers & discounts</div>
+        <div class="gen-step" id="step3"><div class="gen-step-dot"></div>Generating personalised plan with Claude AI</div>
+        <div class="gen-step" id="step4"><div class="gen-step-dot"></div>Optimising cost breakdown</div>
+      </div>
+    </div>
+
+    <!-- Plan content -->
+    <div class="plan-content" id="planContent"></div>
 
   </section>
-
 </div>
 
 <script>
-// ── STATE ────────────────────────────────────────────────────────
-const state = {
-  eventType: 'date',
-  venueMode: 'hybrid',
+// ── STATE ─────────────────────────────────────────────────────────
+const S = {
+  occasion: 'date',
+  venue: 'hybrid',
   location: '',
-  startHour: 20,
+  hour: 20,
   budget: 3000,
   guestCount: 2,
-  guests: [],
   guestMode: 'count',
-  dietaryTags: [],
-  healthFocus: 50,
+  guests: [],
+  dietary: [],
+  health: 50,
   notes: '',
-  isStreaming: false,
-  chatMessages: [],
-  planGenerated: false,
+  streaming: false,
+  chatMsgs: [],
+  lastReq: null,
 };
 
-// ── FORM HANDLERS ────────────────────────────────────────────────
-function selectOccasion(el) {
-  document.querySelectorAll('.occasion-chip').forEach(c => c.classList.remove('active'));
-  el.classList.add('active');
-  state.eventType = el.dataset.val;
+// ── LOADING SCREEN ─────────────────────────────────────────────────
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    document.getElementById('loadScreen').classList.add('hidden');
+  }, 2200);
+});
+
+// ── FORM HELPERS ───────────────────────────────────────────────────
+function pick(el, type, val) {
+  if (type === 'occasion') {
+    document.querySelectorAll('.occasion-chip').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+    S.occasion = el.dataset.val;
+  } else if (type === 'venue') {
+    document.querySelectorAll('.venue-btn').forEach(b => b.classList.remove('active'));
+    el.classList.add('active');
+    S.venue = val;
+  }
 }
 
-function selectVenue(el, val) {
-  document.querySelectorAll('.venue-btn').forEach(b => b.classList.remove('active'));
-  el.classList.add('active');
-  state.venueMode = val;
+function gc(d) {
+  S.guestCount = Math.max(1, Math.min(100, S.guestCount + d));
+  const el = document.getElementById('gnum');
+  el.textContent = S.guestCount;
+  el.classList.remove('bump');
+  void el.offsetWidth;
+  el.classList.add('bump');
 }
 
-function adjustCount(delta) {
-  state.guestCount = Math.max(1, Math.min(100, state.guestCount + delta));
-  document.getElementById('countNum').textContent = state.guestCount;
+function gMode(m) {
+  S.guestMode = m;
+  document.getElementById('gtab-count').classList.toggle('active', m === 'count');
+  document.getElementById('gtab-named').classList.toggle('active', m === 'named');
+  document.getElementById('gcount').style.display = m === 'count' ? 'block' : 'none';
+  document.getElementById('gnamed').style.display = m === 'named' ? 'block' : 'none';
 }
 
-function setGuestMode(mode) {
-  state.guestMode = mode;
-  document.getElementById('countPill').classList.toggle('active', mode === 'count');
-  document.getElementById('namedPill').classList.toggle('active', mode === 'named');
-  document.getElementById('countMode').style.display = mode === 'count' ? 'block' : 'none';
-  document.getElementById('namedMode').style.display = mode === 'named' ? 'block' : 'none';
-}
-
-function addGuest() {
-  const input = document.getElementById('guestNameInput');
-  const name = input.value.trim();
+function addG() {
+  const inp = document.getElementById('gname');
+  const name = inp.value.trim();
   if (!name) return;
-  state.guests.push({ name, dietary_tags: [] });
-  renderGuestList();
-  input.value = '';
+  S.guests.push({ name, dietary_tags: [] });
+  renderGuests();
+  inp.value = '';
+  inp.focus();
 }
 
-function removeGuest(i) {
-  state.guests.splice(i, 1);
-  renderGuestList();
+function removeG(i) {
+  S.guests.splice(i, 1);
+  renderGuests();
 }
 
-function renderGuestList() {
-  const el = document.getElementById('guestList');
-  el.innerHTML = state.guests.map((g, i) => `
-    <div class="guest-tag">
+function renderGuests() {
+  document.getElementById('glist').innerHTML = S.guests.map((g, i) => `
+    <div class="guest-item">
       <span class="guest-name">${g.name}</span>
-      <span class="guest-diet">${g.dietary_tags.join(', ') || 'No restrictions'}</span>
-      <span class="remove-btn" onclick="removeGuest(${i})">×</span>
+      <span class="remove-x" onclick="removeG(${i})">×</span>
     </div>
   `).join('');
 }
 
-function toggleDiet(el) {
+function toggleD(el) {
   el.classList.toggle('active');
-  const tag = el.textContent;
-  if (el.classList.contains('active')) {
-    state.dietaryTags.push(tag);
-  } else {
-    state.dietaryTags = state.dietaryTags.filter(t => t !== tag);
-  }
+  const tag = el.querySelector('span').textContent;
+  S.dietary = el.classList.contains('active')
+    ? [...S.dietary, tag]
+    : S.dietary.filter(t => t !== tag);
 }
 
-function updateTime(val) {
-  state.startHour = parseInt(val);
-  const h = state.startHour;
+function updateSlider(el, displayId, prefix, currency) {
+  const val = parseInt(el.value);
+  const min = parseInt(el.min), max = parseInt(el.max);
+  const pct = ((val - min) / (max - min)) * 100;
+  el.style.setProperty('--pct', pct + '%');
+  document.getElementById(displayId).textContent = currency
+    ? prefix + val.toLocaleString('en-IN')
+    : prefix + val;
+  if (el.id === 'budgetSlider') S.budget = val;
+}
+
+function updateTime(el) {
+  S.hour = parseInt(el.value);
+  const h = S.hour;
+  const pct = ((h - 12) / (23 - 12)) * 100;
+  el.style.setProperty('--pct', pct + '%');
   const display = h >= 12 ? `${h === 12 ? 12 : h - 12}:00 PM` : `${h}:00 AM`;
-  document.getElementById('timeVal').textContent = display;
+  document.getElementById('timeDisplay').textContent = display;
 }
 
-function updateHealth(val) {
-  state.healthFocus = parseInt(val);
-  const label = state.healthFocus >= 70 ? 'Mindful' : state.healthFocus <= 30 ? 'Indulgent' : 'Balanced';
-  document.getElementById('healthVal').textContent = label;
+function updateVibe(el) {
+  S.health = parseInt(el.value);
+  const pct = (S.health / 100) * 100;
+  el.style.setProperty('--pct', pct + '%');
+  const label = S.health >= 70 ? 'Mindful' : S.health <= 30 ? 'Indulgent' : 'Balanced';
+  document.getElementById('vibeDisplay').textContent = label;
 }
 
-async function detectLocation() {
+async function gps() {
   if (!navigator.geolocation) return;
   try {
     const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej));
-    const { latitude, longitude } = pos.coords;
-    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`);
+    const { latitude: lat, longitude: lon } = pos.coords;
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`);
     const d = await r.json();
     const city = d.address?.city || d.address?.town || d.address?.suburb || 'Your location';
-    document.getElementById('locationInput').value = city;
-    state.location = city;
-  } catch { }
+    document.getElementById('loc').value = city;
+    S.location = city;
+    const inp = document.getElementById('loc');
+    inp.style.borderColor = 'var(--gold-dim)';
+    setTimeout(() => inp.style.borderColor = '', 1500);
+  } catch {}
 }
 
-// ── LOADING BAR ──────────────────────────────────────────────────
-let loadProgress = 0;
-let loadInterval = null;
+// ── LOADING BAR ────────────────────────────────────────────────────
+let barProgress = 0, barTimer = null;
 
-function startLoading() {
-  loadProgress = 0;
-  const bar = document.getElementById('loadingBar');
+function startBar() {
+  barProgress = 0;
+  const bar = document.getElementById('topBar');
   bar.style.width = '0%';
-  loadInterval = setInterval(() => {
-    loadProgress = Math.min(loadProgress + Math.random() * 3, 85);
-    bar.style.width = loadProgress + '%';
-  }, 200);
+  barTimer = setInterval(() => {
+    barProgress = Math.min(barProgress + Math.random() * 2.5, 88);
+    bar.style.width = barProgress + '%';
+  }, 150);
 }
 
-function finishLoading() {
-  clearInterval(loadInterval);
-  const bar = document.getElementById('loadingBar');
+function finishBar() {
+  clearInterval(barTimer);
+  const bar = document.getElementById('topBar');
   bar.style.width = '100%';
-  setTimeout(() => { bar.style.width = '0%'; }, 600);
+  setTimeout(() => { bar.style.width = '0%'; }, 700);
 }
 
-// ── PARSE PLAN ───────────────────────────────────────────────────
+// ── GENERATING STEPS ───────────────────────────────────────────────
+const genSteps = ['step1','step2','step3','step4'];
+let stepTimer = null;
+
+function startSteps() {
+  genSteps.forEach(s => {
+    const el = document.getElementById(s);
+    el.classList.remove('active','done');
+  });
+  let i = 0;
+  function next() {
+    if (i > 0) document.getElementById(genSteps[i-1]).classList.replace('active','done');
+    if (i < genSteps.length) {
+      document.getElementById(genSteps[i]).classList.add('active');
+      i++;
+      stepTimer = setTimeout(next, 1200 + Math.random() * 800);
+    }
+  }
+  next();
+}
+
+function stopSteps() {
+  clearTimeout(stepTimer);
+  genSteps.forEach(s => {
+    document.getElementById(s).classList.add('done');
+    document.getElementById(s).classList.remove('active');
+  });
+}
+
+// ── PARSE ──────────────────────────────────────────────────────────
 function getSection(text, marker) {
-  const cleaned = text.split('⏎').join('\n');
-  const regex = new RegExp(`\\[${marker}\\]\\n?([\\s\\S]*?)(?=\\n?\\[[A-Z]+\\]|$)`);
-  const match = cleaned.match(regex);
-  return match ? match[1].trim() : '';
+  const clean = text.split('⏎').join('\n');
+  const rx = new RegExp(`\\[${marker}\\]\\n?([\\s\\S]*?)(?=\\n?\\[[A-Z]+\\]|$)`);
+  const m = clean.match(rx);
+  return m ? m[1].trim() : '';
 }
 
 function parseTimeline(raw) {
@@ -1236,47 +1712,53 @@ function parseTimeline(raw) {
     .filter(l => l.includes('|'))
     .map(l => {
       const p = l.split('|').map(s => s.trim());
-      return { time: p[0], emoji: p[1] || '●', title: p[2] || '', detail: p[3] || '' };
+      return { time: p[0]||'', emoji: p[1]||'●', title: p[2]||'', detail: p[3]||'' };
     })
     .filter(s => s.title);
 }
 
-function parsePlan(raw) {
-  const cleaned = raw.replace(/^data:\s*/gm, '').split('⏎').join('\n');
+function parse(raw) {
+  const clean = raw.replace(/^data:\s*/gm,'').split('⏎').join('\n');
+  const cost = getSection(clean,'COST');
+  const offers = getSection(clean,'OFFERS');
   return {
-    brief: getSection(cleaned, 'BRIEF'),
-    timeline: parseTimeline(getSection(cleaned, 'TIMELINE')),
-    dineout: getSection(cleaned, 'DINEOUT'),
-    food: getSection(cleaned, 'FOOD'),
-    instamart: getSection(cleaned, 'INSTAMART'),
-    health: getSection(cleaned, 'HEALTH'),
-    offers: getSection(cleaned, 'OFFERS'),
-    cost: getSection(cleaned, 'COST'),
-    totalCost: (getSection(cleaned, 'COST').match(/TOTAL:\s*(₹[\d,]+)/) || [])[1] || '',
-    totalSavings: (getSection(cleaned, 'OFFERS').match(/TOTAL SAVINGS:\s*(₹[\d,]+)/) || [])[1] || '',
+    brief: getSection(clean,'BRIEF'),
+    timeline: parseTimeline(getSection(clean,'TIMELINE')),
+    dineout: getSection(clean,'DINEOUT'),
+    food: getSection(clean,'FOOD'),
+    instamart: getSection(clean,'INSTAMART'),
+    health: getSection(clean,'HEALTH'),
+    offers,
+    cost,
+    totalCost: (cost.match(/TOTAL:\s*(₹[\d,]+)/)||[])[1]||'',
+    totalSavings: (offers.match(/TOTAL SAVINGS:\s*(₹[\d,]+)/)||[])[1]||'',
   };
 }
 
-// ── RENDER PLAN ──────────────────────────────────────────────────
+// ── RENDER ─────────────────────────────────────────────────────────
+function reveal(el, delay = 0) {
+  setTimeout(() => el.classList.add('visible'), delay);
+}
+
 function renderPlan(plan) {
-  const content = document.getElementById('planContent');
+  const c = document.getElementById('planContent');
   let html = '';
 
   if (plan.brief) {
-    html += `<div class="plan-brief">
-      <p class="plan-brief-text">${plan.brief}</p>
+    html += `<div class="plan-brief reveal" id="r0">
+      <p class="brief-text">${plan.brief}</p>
     </div>`;
   }
 
   if (plan.timeline.length) {
-    html += `<div class="section-block">
-      <div class="section-head">
-        <div class="section-ornament"></div>
+    html += `<div class="plan-section reveal" id="r1">
+      <div class="section-header">
+        <div class="section-line"></div>
         <span class="section-title">Evening Timeline</span>
       </div>
       <div class="timeline">
         ${plan.timeline.map(s => `
-          <div class="tl-item">
+          <div class="tl-row">
             <div class="tl-node">${s.emoji}</div>
             <div class="tl-body">
               <div class="tl-time">${s.time}</div>
@@ -1289,33 +1771,33 @@ function renderPlan(plan) {
     </div>`;
   }
 
-  html += `<div class="section-block"><div class="service-cards">`;
+  html += `<div class="plan-section reveal" id="r2"><div class="card-stack">`;
 
   if (plan.dineout) {
-    html += `<div class="service-card">
-      <div class="card-header">
-        <span class="card-title">Dineout Reservation</span>
-        <span class="card-api-badge badge-dineout">DINEOUT API</span>
+    html += `<div class="svc-card">
+      <div class="card-head">
+        <span class="card-title-text">Dineout Reservation</span>
+        <span class="api-badge badge-d">DINEOUT API</span>
       </div>
       <div class="card-body">${plan.dineout}</div>
     </div>`;
   }
 
   if (plan.food) {
-    html += `<div class="service-card">
-      <div class="card-header">
-        <span class="card-title">Food Delivery</span>
-        <span class="card-api-badge badge-food">FOOD API</span>
+    html += `<div class="svc-card">
+      <div class="card-head">
+        <span class="card-title-text">Food Delivery</span>
+        <span class="api-badge badge-f">FOOD API</span>
       </div>
       <div class="card-body">${plan.food}</div>
     </div>`;
   }
 
   if (plan.instamart) {
-    html += `<div class="service-card">
-      <div class="card-header">
-        <span class="card-title">Instamart Cart</span>
-        <span class="card-api-badge badge-instamart">INSTAMART API</span>
+    html += `<div class="svc-card">
+      <div class="card-head">
+        <span class="card-title-text">Instamart Cart</span>
+        <span class="api-badge badge-i">INSTAMART API</span>
       </div>
       <div class="card-body">${plan.instamart}</div>
     </div>`;
@@ -1324,129 +1806,141 @@ function renderPlan(plan) {
   html += `</div></div>`;
 
   if (plan.offers) {
-    html += `<div class="section-block">
-      <div class="section-head">
-        <div class="section-ornament"></div>
+    html += `<div class="plan-section reveal" id="r3">
+      <div class="offers-header">
+        <div class="section-line"></div>
         <span class="section-title">Offers & Savings</span>
-        ${plan.totalSavings ? `<span class="savings-chip">${plan.totalSavings} saved</span>` : ''}
+        ${plan.totalSavings ? `<span class="savings-badge">${plan.totalSavings} saved</span>` : ''}
       </div>
-      <div class="card-body" style="padding:0;color:var(--text2);font-size:13px;line-height:1.8">${plan.offers}</div>
+      <div style="font-size:13px;color:var(--text2);line-height:1.85;white-space:pre-wrap">${plan.offers}</div>
     </div>`;
   }
 
   if (plan.cost) {
     const parts = plan.cost.match(/(Dineout:\s*₹[\d,]+)\s*\|\s*(Food Delivery:\s*₹[\d,]+)\s*\|\s*(Instamart:\s*₹[\d,]+)/);
-    html += `<div class="section-block">
-      <div class="section-head">
-        <div class="section-ornament"></div>
+    html += `<div class="plan-section reveal" id="r4">
+      <div class="section-header">
+        <div class="section-line"></div>
         <span class="section-title">Cost Breakdown</span>
       </div>
-      ${parts ? `
-      <div class="cost-grid">
+      ${parts ? `<div class="cost-breakdown">
         ${parts.slice(1).map(p => {
-          const [label, val] = p.split(':').map(s => s.trim());
-          return `<div class="cost-item">
-            <div class="cost-label">${label}</div>
-            <div class="cost-value">${val}</div>
+          const [label,val] = p.split(':').map(s => s.trim());
+          return `<div class="cost-col">
+            <div class="cost-col-label">${label}</div>
+            <div class="cost-col-val">${val}</div>
           </div>`;
         }).join('')}
       </div>` : ''}
-      ${plan.totalCost ? `
-      <div class="cost-total">
+      ${plan.totalCost ? `<div class="cost-total-row">
         <span class="cost-total-label">Total for the evening</span>
-        <span class="cost-total-value">${plan.totalCost}</span>
+        <span class="cost-total-val">${plan.totalCost}</span>
       </div>` : ''}
     </div>`;
   }
 
   if (plan.health) {
-    html += `<div class="health-note">💚 ${plan.health}</div>`;
+    html += `<div class="health-note reveal" id="r5">💚 ${plan.health}</div>`;
   }
 
   html += `
-  <div class="action-row">
-    <button class="action-secondary" onclick="resetPlan()">↺ New plan</button>
-    <button class="action-primary">
-      ✓ Approve & Order
-      <span class="phase-tag">PHASE 2</span>
+  <div class="action-row reveal" id="r6">
+    <button class="btn-sec" onclick="resetPlan()">↺ &nbsp;New plan</button>
+    <button class="btn-pri">
+      ✓ &nbsp;Approve & Order
+      <span class="phase-note">PHASE 2</span>
     </button>
   </div>
-  <div class="chat-panel" id="chatPanel">
-    <div class="chat-label">Refine your plan</div>
-    <div class="suggestion-chips">
-      ${['Make it more romantic','Switch to Italian','Add cocktail pairings','We added a vegan guest','Reduce budget by ₹500'].map(s =>
-        `<button class="suggestion-chip" onclick="sendSuggestion('${s}')">${s}</button>`
+  <div class="chat-section reveal" id="r7">
+    <div class="chat-section-label">Refine your plan</div>
+    <div class="chips">
+      ${['Make it more romantic','Switch to Italian','Add cocktail pairings','We added a vegan guest','Lower the budget'].map(s =>
+        `<button class="chip" onclick="sendChip('${s}')">${s}</button>`
       ).join('')}
     </div>
-    <div class="chat-messages" id="chatMessages"></div>
-    <div class="chat-input-row">
-      <input type="text" class="chat-input" id="chatInput"
-        placeholder="Ask anything — 'make it more romantic', 'switch to Italian'..."
+    <div class="chat-msgs" id="chatMsgs"></div>
+    <div class="chat-input-wrap">
+      <input type="text" class="chat-inp" id="chatInp"
+        placeholder="Ask anything — 'more romantic', 'switch to Italian'..."
         onkeydown="if(event.key==='Enter')sendChat()">
       <button class="chat-send" id="chatSend" onclick="sendChat()">↑</button>
     </div>
   </div>`;
 
-  content.innerHTML = html;
+  c.innerHTML = html;
   document.getElementById('emptyState').style.display = 'none';
-  content.style.display = 'block';
+  document.getElementById('genState').style.display = 'none';
+  c.style.display = 'block';
+
+  // Staggered reveals
+  ['r0','r1','r2','r3','r4','r5','r6','r7'].forEach((id, i) => {
+    const el = document.getElementById(id);
+    if (el) reveal(el, i * 120);
+  });
 }
 
-// ── GENERATE PLAN ────────────────────────────────────────────────
-async function generatePlan() {
-  state.location = document.getElementById('locationInput').value.trim();
-  state.budget = parseInt(document.querySelector('input[type=range]').value);
-  state.notes = document.getElementById('notesInput').value.trim();
+// ── GENERATE ───────────────────────────────────────────────────────
+async function generate() {
+  S.location = document.getElementById('loc').value.trim();
+  S.notes = document.getElementById('notesTA').value.trim();
 
-  if (!state.location) {
-    document.getElementById('locationInput').focus();
-    document.getElementById('locationInput').style.borderColor = 'var(--coral)';
-    setTimeout(() => document.getElementById('locationInput').style.borderColor = '', 2000);
+  if (!S.location) {
+    const inp = document.getElementById('loc');
+    inp.style.borderColor = 'var(--coral)';
+    inp.focus();
+    setTimeout(() => inp.style.borderColor = '', 2000);
     return;
   }
 
-  const btn = document.getElementById('planBtn');
+  const btn = document.getElementById('planCta');
   btn.disabled = true;
-  btn.textContent = '✦   PLANNING YOUR EVENING...';
-  state.isStreaming = true;
-  startLoading();
+  btn.innerHTML = '<span class="cta-spinner"></span> ORCHESTRATING...';
+  S.streaming = true;
 
   document.getElementById('emptyState').style.display = 'none';
   document.getElementById('planContent').style.display = 'none';
+  document.getElementById('planContent').innerHTML = '';
 
-  const request = {
-    event_type: state.eventType,
-    venue_mode: state.venueMode,
-    location: state.location,
-    start_hour: state.startHour,
-    budget: state.budget,
-    guest_count: state.guestMode === 'named' ? state.guests.length || 2 : state.guestCount,
-    guests: state.guestMode === 'named' ? state.guests : [],
-    dietary_tags: state.dietaryTags,
-    health_focus: state.healthFocus,
-    notes: state.notes || null,
+  const gen = document.getElementById('genState');
+  gen.style.display = 'flex';
+
+  startBar();
+  startSteps();
+
+  const req = {
+    event_type: S.occasion,
+    venue_mode: S.venue,
+    location: S.location,
+    start_hour: S.hour,
+    budget: S.budget,
+    guest_count: S.guestMode === 'named' ? Math.max(S.guests.length, 1) : S.guestCount,
+    guests: S.guestMode === 'named' ? S.guests : [],
+    dietary_tags: S.dietary,
+    health_focus: S.health,
+    notes: S.notes || null,
   };
 
+  S.lastReq = req;
+
   try {
-    const response = await fetch('https://soiree-production.up.railway.app/api/v1/plans/generate', {
+    const res = await fetch('https://soiree-production.up.railway.app/api/v1/plans/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request),
+      body: JSON.stringify(req),
     });
 
-    if (!response.ok) throw new Error(`${response.status}`);
+    if (!res.ok) throw new Error(res.status);
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder('utf-8');
-    let buffer = '';
-    let accumulated = '';
+    const reader = res.body.getReader();
+    const dec = new TextDecoder('utf-8');
+    let buf = '', acc = '';
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const parts = buffer.split('\n\n');
-      buffer = parts.pop() ?? '';
+      buf += dec.decode(value, { stream: true });
+      const parts = buf.split('\n\n');
+      buf = parts.pop() ?? '';
       for (const part of parts) {
         const lines = part.split('\n').filter(l => l.startsWith('data: '));
         if (!lines.length) continue;
@@ -1454,125 +1948,134 @@ async function generatePlan() {
         if (content.trim() === '[DONE]') break;
         if (content.startsWith('PLAN_ID:')) continue;
         if (content.startsWith('[ERROR]')) throw new Error(content.slice(8));
-        if (content.trim()) accumulated += content;
+        if (content.trim()) acc += content;
       }
     }
 
     reader.releaseLock();
-    const plan = parsePlan(accumulated);
-    renderPlan(plan);
-    state.planGenerated = true;
-    state.lastRequest = request;
+    stopSteps();
+    finishBar();
 
-  } catch (e) {
-    document.getElementById('planContent').style.display = 'block';
-    document.getElementById('planContent').innerHTML = `
-      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:60vh;gap:16px">
-        <p style="color:var(--coral);font-size:14px">Something went wrong: ${e.message}</p>
-        <button class="action-secondary" onclick="resetPlan()">Try again</button>
-      </div>`;
+    const plan = parse(acc);
+    renderPlan(plan);
+
+  } catch(e) {
+    stopSteps();
+    finishBar();
+    document.getElementById('genState').style.display = 'none';
+    document.getElementById('emptyState').style.display = 'flex';
+    document.getElementById('emptyState').querySelector('.empty-heading').textContent = 'Something went wrong';
+    document.getElementById('emptyState').querySelector('.empty-sub').textContent = e.message || 'Please try again';
   } finally {
     btn.disabled = false;
-    btn.textContent = '✦ \u00A0 PLAN MY EVENING';
-    state.isStreaming = false;
-    finishLoading();
+    btn.innerHTML = '✦ &nbsp; PLAN MY EVENING';
+    S.streaming = false;
   }
 }
 
 function resetPlan() {
-  document.getElementById('emptyState').style.display = 'flex';
   document.getElementById('planContent').style.display = 'none';
-  state.planGenerated = false;
-  state.chatMessages = [];
+  document.getElementById('planContent').innerHTML = '';
+  const es = document.getElementById('emptyState');
+  es.style.display = 'flex';
+  es.querySelector('.empty-heading').innerHTML = 'Your evening,<br>curated.';
+  es.querySelector('.empty-sub').textContent = 'Configure your event and let Soirée orchestrate every detail — from rooftop reservations to 10-minute grocery deliveries.';
+  S.chatMsgs = [];
 }
 
-// ── CHAT ─────────────────────────────────────────────────────────
-function sendSuggestion(text) {
-  document.getElementById('chatInput').value = text;
+// ── CHAT ───────────────────────────────────────────────────────────
+function sendChip(text) {
+  document.getElementById('chatInp').value = text;
   sendChat();
 }
 
-async function sendChat() {
-  const input = document.getElementById('chatInput');
-  const msg = input.value.trim();
-  if (!msg || state.isStreaming) return;
-  input.value = '';
+let msgId = 0;
 
-  appendChatMsg('user', msg);
-  state.chatMessages.push({ role: 'user', content: msg });
-
-  const typingId = appendChatMsg('ai', null, true);
-  state.isStreaming = true;
-  document.getElementById('chatSend').disabled = true;
-
-  try {
-    const response = await fetch('https://soiree-production.up.railway.app/api/v1/plans/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_message: msg,
-        event_data: state.lastRequest || {},
-        conversation_history: state.chatMessages.slice(0, -1),
-      }),
-    });
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder('utf-8');
-    let buffer = '';
-    let reply = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const parts = buffer.split('\n\n');
-      buffer = parts.pop() ?? '';
-      for (const part of parts) {
-        const lines = part.split('\n').filter(l => l.startsWith('data: '));
-        if (!lines.length) continue;
-        const content = lines.map(l => l.slice(6)).join('\n').replace(/⏎/g, '\n');
-        if (content.trim() === '[DONE]') break;
-        if (content.trim()) {
-          reply += content;
-          updateChatMsg(typingId, reply);
-        }
-      }
-    }
-
-    reader.releaseLock();
-    state.chatMessages.push({ role: 'assistant', content: reply });
-
-  } catch (e) {
-    updateChatMsg(typingId, 'Sorry, something went wrong.');
-  } finally {
-    state.isStreaming = false;
-    document.getElementById('chatSend').disabled = false;
-  }
-}
-
-let msgCounter = 0;
-function appendChatMsg(role, text, typing = false) {
-  const id = 'msg-' + (++msgCounter);
-  const container = document.getElementById('chatMessages');
+function appendMsg(role, text, typing) {
+  const id = 'msg' + (++msgId);
   const isUser = role === 'user';
   const div = document.createElement('div');
   div.className = `chat-msg ${isUser ? 'user' : ''}`;
   div.id = id;
   div.innerHTML = `
-    <div class="chat-avatar ${isUser ? 'user-av' : 'ai'}">${isUser ? '↑' : '✦'}</div>
-    <div class="chat-bubble ${isUser ? 'user-b' : 'ai'}">
-      ${typing ? '<span class="streaming-dots"><span class="streaming-dot"></span><span class="streaming-dot"></span><span class="streaming-dot"></span></span>' : (text || '')}
+    <div class="chat-av ${isUser ? 'usr' : 'ai'}">${isUser ? '↑' : '✦'}</div>
+    <div class="chat-bub ${isUser ? 'usr' : 'ai'}">
+      ${typing ? '<div class="typing-dots"><div class="td"></div><div class="td"></div><div class="td"></div></div>' : (text||'')}
     </div>`;
+  const container = document.getElementById('chatMsgs');
   container.appendChild(div);
-  div.scrollIntoView({ behavior: 'smooth' });
+  div.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   return id;
 }
 
-function updateChatMsg(id, text) {
+function updateMsg(id, text) {
   const el = document.getElementById(id);
-  if (!el) return;
-  el.querySelector('.chat-bubble').textContent = text;
+  if (el) el.querySelector('.chat-bub').textContent = text;
 }
+
+async function sendChat() {
+  const inp = document.getElementById('chatInp');
+  const msg = inp.value.trim();
+  if (!msg || S.streaming) return;
+  inp.value = '';
+
+  appendMsg('user', msg);
+  S.chatMsgs.push({ role: 'user', content: msg });
+
+  const typingId = appendMsg('ai', null, true);
+  S.streaming = true;
+  document.getElementById('chatSend').disabled = true;
+
+  try {
+    const res = await fetch('https://soiree-production.up.railway.app/api/v1/plans/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_message: msg,
+        event_data: S.lastReq || {},
+        conversation_history: S.chatMsgs.slice(0, -1),
+      }),
+    });
+
+    const reader = res.body.getReader();
+    const dec = new TextDecoder('utf-8');
+    let buf = '', reply = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const parts = buf.split('\n\n');
+      buf = parts.pop() ?? '';
+      for (const part of parts) {
+        const lines = part.split('\n').filter(l => l.startsWith('data: '));
+        if (!lines.length) continue;
+        const content = lines.map(l => l.slice(6)).join('\n').replace(/⏎/g,'');
+        if (content.trim() === '[DONE]') break;
+        if (content.trim()) { reply += content; updateMsg(typingId, reply); }
+      }
+    }
+
+    reader.releaseLock();
+    S.chatMsgs.push({ role: 'assistant', content: reply });
+
+  } catch(e) {
+    updateMsg(typingId, 'Something went wrong. Please try again.');
+  } finally {
+    S.streaming = false;
+    document.getElementById('chatSend').disabled = false;
+  }
+}
+
+// Init sliders
+document.addEventListener('DOMContentLoaded', () => {
+  ['budgetSlider','timeSlider','vibeSlider'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const pct = ((el.value - el.min) / (el.max - el.min)) * 100;
+    el.style.setProperty('--pct', pct + '%');
+  });
+});
 </script>
 </body>
 </html>
