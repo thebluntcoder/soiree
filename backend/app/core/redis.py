@@ -62,10 +62,12 @@ async def get_redis() -> aioredis.Redis:
     """
     global _redis_client
     if _redis_client is None:
+        # Railway provides rediss:// (SSL) or redis:// — both work with from_url
         _redis_client = aioredis.from_url(
             settings.REDIS_URL,
             encoding="utf-8",
-            decode_responses=True,  # return str instead of bytes
+            decode_responses=True,
+            ssl_cert_reqs=None,  # Railway Redis uses self-signed cert
         )
     return _redis_client
 

@@ -38,8 +38,15 @@ from app.core.config import settings
 # pool_pre_ping=True: before using a connection from the pool, send a
 # lightweight "ping" to check it's still alive. Prevents "connection closed"
 # errors after the DB has been idle.
+# Railway provides postgresql:// but asyncpg requires postgresql+asyncpg://
+# Auto-convert to ensure the correct async driver is always used
+db_url = settings.DATABASE_URL
+if db_url.startswith("postgresql://") or db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    db_url,
     echo=settings.APP_ENV == "development",
     pool_pre_ping=True,
 )
