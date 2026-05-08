@@ -128,7 +128,7 @@ class Event(SQLModel, table=True):
     event_date: Optional[datetime] = Field(
         default=None, description="Date of the event, None = today"
     )
-    start_hour: int = Field(
+    start_hour: float = Field(
         ge=10,
         le=23,
         description="Event start time in 24h format. ge/le = greater/less than or equal (validation).",

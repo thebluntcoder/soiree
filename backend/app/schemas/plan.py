@@ -90,11 +90,11 @@ class PlanRequest(BaseModel):
         min_length=2,
         description="City name or full address. E.g. 'Koramangala, Bangalore' or 'Lucknow'",
     )
-    start_hour: int = Field(
+    start_hour: float = Field(
         default=20,
         ge=10,
         le=23,
-        description="Event start time in 24h format. 20 = 8 PM.",
+        description="Event start time in 24h format. 20 = 8 PM, 20.5 = 8:30 PM.",
     )
     budget: int = Field(
         ...,
