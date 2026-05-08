@@ -1288,6 +1288,25 @@ input[type=range]::-webkit-slider-thumb:hover {
   pointer-events: none;
   z-index: 100;
 }
+
+.svc-sel {
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border2);
+  background: var(--surface);
+  color: var(--text2);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: 'DM Sans', sans-serif;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.svc-sel:hover { border-color: var(--border3); }
+.svc-sel.active { background: var(--surface2); border-color: var(--gold-dim); color: var(--text); }
+.svc-sel:not(.active) { opacity: 0.4; text-decoration: line-through; }
 </style>
 </head>
 <body>
@@ -1426,8 +1445,8 @@ input[type=range]::-webkit-slider-thumb:hover {
         <span class="slider-note">Total for the evening</span>
         <span class="slider-val" id="budgetDisplay">₹3,000</span>
       </div>
-      <input type="range" id="budgetSlider" min="500" max="15000" step="100" value="3000" oninput="updateSlider(this,'budgetDisplay','₹',true)">
-      <div class="slider-marks"><span>₹500</span><span>₹15,000</span></div>
+      <input type="range" id="budgetSlider" min="100" max="50000" step="50" value="3000" oninput="updateSlider(this,'budgetDisplay','₹',true)">
+      <div class="slider-marks"><span>₹100</span><span>₹50,000</span></div>
     </div>
 
     <div class="field-group">
@@ -1436,7 +1455,7 @@ input[type=range]::-webkit-slider-thumb:hover {
         <span class="slider-note">Evening begins at</span>
         <span class="slider-val" id="timeDisplay">8:00 PM</span>
       </div>
-      <input type="range" id="timeSlider" min="12" max="23" step="1" value="20" oninput="updateTime(this)">
+      <input type="range" id="timeSlider" min="12" max="23" step="0.5" value="20" oninput="updateTime(this)">
       <div class="slider-marks"><span>12 PM</span><span>11 PM</span></div>
     </div>
 
@@ -1578,7 +1597,7 @@ function addG() {
   const inp = document.getElementById('gname');
   const name = inp.value.trim();
   if (!name) return;
-  S.guests.push({ name, dietary_tags: [] });
+  S.guests.push({ name, dietary_tags: [], pref: 'any', allergens: [] });
   renderGuests();
   inp.value = '';
   inp.focus();
@@ -1589,11 +1608,54 @@ function removeG(i) {
   renderGuests();
 }
 
+const ALLERGENS = ['Nuts','Dairy','Gluten','Eggs','Shellfish','Soy'];
+
+function toggleGuestPref(i, pref) {
+  S.guests[i].pref = pref;
+  renderGuests();
+}
+
+function toggleGuestAllergen(i, tag) {
+  const g = S.guests[i];
+  g.allergens = g.allergens.includes(tag)
+    ? g.allergens.filter(t => t !== tag)
+    : [...g.allergens, tag];
+  // Also update dietary_tags sent to backend
+  g.dietary_tags = [
+    ...(g.pref === 'veg' ? ['Veg'] : []),
+    ...g.allergens.map(a => `No ${a}`)
+  ];
+  renderGuests();
+}
+
 function renderGuests() {
   document.getElementById('glist').innerHTML = S.guests.map((g, i) => `
-    <div class="guest-item">
-      <span class="guest-name">${g.name}</span>
-      <span class="remove-x" onclick="removeG(${i})">×</span>
+    <div class="guest-item" style="flex-direction:column;align-items:stretch;gap:8px;padding:10px 12px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="guest-name" style="font-weight:500">${g.name}</span>
+        <span class="remove-x" onclick="removeG(${i})" style="margin-left:auto">×</span>
+      </div>
+      <div style="display:flex;gap:6px">
+        ${['any','veg','non-veg'].map(p => `
+          <button onclick="toggleGuestPref(${i},'${p}')"
+            style="padding:3px 10px;border-radius:20px;border:1px solid ${g.pref===p ? 'var(--gold-dim)' : 'var(--border)'};
+            background:${g.pref===p ? 'var(--gold-glow)' : 'transparent'};
+            color:${g.pref===p ? 'var(--gold)' : 'var(--text3)'};
+            font-size:10px;cursor:pointer;font-family:DM Sans,sans-serif;transition:all 0.15s">
+            ${p === 'any' ? 'Any' : p === 'veg' ? '🌿 Veg' : '🍖 Non-Veg'}
+          </button>`).join('')}
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px">
+        <span style="font-size:10px;color:var(--text3);margin-right:2px;align-self:center">Allergens:</span>
+        ${ALLERGENS.map(a => `
+          <button onclick="toggleGuestAllergen(${i},'${a}')"
+            style="padding:3px 9px;border-radius:20px;border:1px solid ${g.allergens.includes(a) ? 'rgba(201,90,66,0.4)' : 'var(--border)'};
+            background:${g.allergens.includes(a) ? 'var(--coral-dim)' : 'transparent'};
+            color:${g.allergens.includes(a) ? 'var(--coral2)' : 'var(--text3)'};
+            font-size:10px;cursor:pointer;font-family:DM Sans,sans-serif;transition:all 0.15s">
+            ${a}
+          </button>`).join('')}
+      </div>
     </div>
   `).join('');
 }
@@ -1618,12 +1680,15 @@ function updateSlider(el, displayId, prefix, currency) {
 }
 
 function updateTime(el) {
-  S.hour = parseInt(el.value);
+  S.hour = parseFloat(el.value);
   const h = S.hour;
   const pct = ((h - 12) / (23 - 12)) * 100;
   el.style.setProperty('--pct', pct + '%');
-  const display = h >= 12 ? `${h === 12 ? 12 : h - 12}:00 PM` : `${h}:00 AM`;
-  document.getElementById('timeDisplay').textContent = display;
+  const hFloor = Math.floor(h);
+  const mins = h % 1 === 0.5 ? '30' : '00';
+  const period = hFloor >= 12 ? 'PM' : 'AM';
+  const display12 = hFloor > 12 ? hFloor - 12 : hFloor;
+  document.getElementById('timeDisplay').textContent = `${display12}:${mins} ${period}`;
 }
 
 function updateVibe(el) {
@@ -1843,13 +1908,34 @@ function renderPlan(plan) {
     html += `<div class="health-note reveal" id="r5">💚 ${plan.health}</div>`;
   }
 
+// Build service selection based on what's in the plan
+  const hasDineout = !!plan.dineout;
+  const hasFood = !!plan.food;
+  const hasInstamart = !!plan.instamart;
+
   html += `
-  <div class="action-row reveal" id="r6">
-    <button class="btn-sec" onclick="resetPlan()">↺ &nbsp;New plan</button>
-    <button class="btn-pri">
-      ✓ &nbsp;Approve & Order
-      <span class="phase-note">PHASE 2</span>
-    </button>
+  <div class="action-row reveal" id="r6" style="flex-direction:column;gap:14px">
+    <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3)">
+      Select services to order
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap" id="serviceSelectors">
+      ${hasDineout ? `<button class="svc-sel active" data-svc="dineout" onclick="toggleSvc(this)">
+        <span style="color:var(--amber)">🍽</span> &nbsp;Dineout Reservation
+      </button>` : ''}
+      ${hasFood ? `<button class="svc-sel active" data-svc="food" onclick="toggleSvc(this)">
+        <span style="color:var(--coral2)">🛵</span> &nbsp;Food Delivery
+      </button>` : ''}
+      ${hasInstamart ? `<button class="svc-sel active" data-svc="instamart" onclick="toggleSvc(this)">
+        <span style="color:var(--green2)">🛒</span> &nbsp;Instamart Cart
+      </button>` : ''}
+    </div>
+    <div style="display:flex;gap:10px">
+      <button class="btn-sec" onclick="resetPlan()">↺ &nbsp;New plan</button>
+      <button class="btn-pri" onclick="approveOrder()">
+        ✓ &nbsp;Approve & Order
+        <span class="phase-note">PHASE 2</span>
+      </button>
+    </div>
   </div>
   <div class="chat-section reveal" id="r7">
     <div class="chat-section-label">Refine your plan</div>
@@ -2076,6 +2162,19 @@ document.addEventListener('DOMContentLoaded', () => {
     el.style.setProperty('--pct', pct + '%');
   });
 });
+
+function toggleSvc(el) {
+  el.classList.toggle('active');
+}
+
+function approveOrder() {
+  const selected = [...document.querySelectorAll('.svc-sel.active')].map(el => el.dataset.svc);
+  if (selected.length === 0) {
+    alert('Please select at least one service to order.');
+    return;
+  }
+  alert(`Phase 2 feature — will place orders for: ${selected.join(', ')}`);
+}
 </script>
 </body>
 </html>
