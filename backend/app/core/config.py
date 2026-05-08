@@ -12,16 +12,27 @@ This means your entire config is in one place, type-checked, and
 validated before the app starts. No scattered os.getenv() calls.
 """
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, validator
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Union
 
 
 class Settings(BaseSettings):
     # App
     APP_ENV: str = "development"
     SECRET_KEY: str = "change-me-in-production"
-    ALLOWED_ORIGINS: List[str] = ["http://localhost:3000"]
+    ALLOWED_ORIGINS: Union[List[str], str] = ["http://localhost:3000"]
+
+    @validator("ALLOWED_ORIGINS", pre=True)
+    def parse_origins(cls, v):
+        if isinstance(v, str):
+            # Handle both JSON list and comma-separated string
+            v = v.strip()
+            if v.startswith("["):
+                import json
+                return json.loads(v)
+            return [i.strip() for i in v.split(",")]
+        return v
 
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/soiree"

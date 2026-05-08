@@ -44,3 +44,6 @@ postgres_data/
 *.log
 celerybeat-schedule
 celerybeat.pid
+# Python
+__pycache__/
+**/__pycache__/
