@@ -85,6 +85,9 @@ async def init_db() -> None:
     from app.models.user import User  # noqa: F401
     from app.models.event import Event  # noqa: F401
     from app.models.plan import Plan  # noqa: F401
+    
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
