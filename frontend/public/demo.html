@@ -293,7 +293,14 @@ header {
   background: rgba(11,9,7,0.5);
 }
 
-.field-group { display: flex; flex-direction: column; gap: 0; }
+.field-group { display: flex; flex-direction: column; gap: 0; width: 100%; }
+
+.field-group .inp,
+.field-group .notes-ta,
+.field-group .venue-wrap,
+.field-group .occasion-grid,
+.field-group .diet-row,
+.field-group .guest-tabs { width: 100%; }
 
 .field-label {
   font-size: 9px;
@@ -541,9 +548,9 @@ header {
 .dpill span { position: relative; z-index: 1; }
 
 /* Sliders */
-.slider-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
-.slider-note { font-size: 11px; color: var(--text3); }
-.slider-val { font-family: 'DM Mono', monospace; font-size: 14px; color: var(--gold); }
+.slider-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; width: 100%; }
+.slider-note { font-size: 11px; color: var(--text3); flex: 1; }
+.slider-val { font-family: 'DM Mono', monospace; font-size: 14px; color: var(--gold); text-align: right; min-width: 80px; }
 
 input[type=range] {
   width: 100%;
@@ -1612,44 +1619,67 @@ const ALLERGENS = ['Nuts','Dairy','Gluten','Eggs','Shellfish','Soy'];
 
 function toggleGuestPref(i, pref) {
   S.guests[i].pref = pref;
-  renderGuests();
+  updateGuestTags(i);
+  // Update only the pref buttons, not full re-render
+  const row = document.getElementById(`gpref-${i}`);
+  if (row) {
+    row.querySelectorAll('button').forEach(b => {
+      const isActive = b.dataset.pref === pref;
+      b.style.borderColor = isActive ? 'var(--gold-dim)' : 'var(--border)';
+      b.style.background = isActive ? 'var(--gold-glow)' : 'transparent';
+      b.style.color = isActive ? 'var(--gold)' : 'var(--text3)';
+    });
+  }
 }
 
 function toggleGuestAllergen(i, tag) {
   const g = S.guests[i];
-  g.allergens = g.allergens.includes(tag)
-    ? g.allergens.filter(t => t !== tag)
-    : [...g.allergens, tag];
-  // Also update dietary_tags sent to backend
+  const has = g.allergens.includes(tag);
+  g.allergens = has ? g.allergens.filter(t => t !== tag) : [...g.allergens, tag];
+  updateGuestTags(i);
+  // Update only the allergen button, not full re-render
+  const btn = document.getElementById(`galr-${i}-${tag}`);
+  if (btn) {
+    const active = g.allergens.includes(tag);
+    btn.style.borderColor = active ? 'rgba(201,90,66,0.4)' : 'var(--border)';
+    btn.style.background = active ? 'var(--coral-dim)' : 'transparent';
+    btn.style.color = active ? 'var(--coral2)' : 'var(--text3)';
+  }
+}
+
+function updateGuestTags(i) {
+  const g = S.guests[i];
   g.dietary_tags = [
-    ...(g.pref === 'veg' ? ['Veg'] : []),
+    ...(g.pref === 'veg' ? ['Veg'] : g.pref === 'non-veg' ? [] : []),
     ...g.allergens.map(a => `No ${a}`)
   ];
-  renderGuests();
 }
 
 function renderGuests() {
   document.getElementById('glist').innerHTML = S.guests.map((g, i) => `
-    <div class="guest-item" style="flex-direction:column;align-items:stretch;gap:8px;padding:10px 12px">
-      <div style="display:flex;align-items:center;gap:8px">
-        <span class="guest-name" style="font-weight:500">${g.name}</span>
+    <div class="guest-item" style="flex-direction:column;align-items:stretch;gap:10px;padding:12px">
+      <div style="display:flex;align-items:center">
+        <span style="font-size:13px;font-weight:500;color:var(--text)">${g.name}</span>
         <span class="remove-x" onclick="removeG(${i})" style="margin-left:auto">×</span>
       </div>
-      <div style="display:flex;gap:6px">
+      <div style="display:flex;gap:5px" id="gpref-${i}">
+        <span style="font-size:10px;color:var(--text3);align-self:center;margin-right:2px">Preference:</span>
         ${['any','veg','non-veg'].map(p => `
-          <button onclick="toggleGuestPref(${i},'${p}')"
-            style="padding:3px 10px;border-radius:20px;border:1px solid ${g.pref===p ? 'var(--gold-dim)' : 'var(--border)'};
+          <button data-pref="${p}" onclick="toggleGuestPref(${i},'${p}')"
+            style="padding:4px 10px;border-radius:20px;
+            border:1px solid ${g.pref===p ? 'var(--gold-dim)' : 'var(--border)'};
             background:${g.pref===p ? 'var(--gold-glow)' : 'transparent'};
             color:${g.pref===p ? 'var(--gold)' : 'var(--text3)'};
             font-size:10px;cursor:pointer;font-family:DM Sans,sans-serif;transition:all 0.15s">
             ${p === 'any' ? 'Any' : p === 'veg' ? '🌿 Veg' : '🍖 Non-Veg'}
           </button>`).join('')}
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:4px">
-        <span style="font-size:10px;color:var(--text3);margin-right:2px;align-self:center">Allergens:</span>
+      <div style="display:flex;flex-wrap:wrap;gap:5px">
+        <span style="font-size:10px;color:var(--text3);align-self:center;margin-right:2px">Allergens:</span>
         ${ALLERGENS.map(a => `
-          <button onclick="toggleGuestAllergen(${i},'${a}')"
-            style="padding:3px 9px;border-radius:20px;border:1px solid ${g.allergens.includes(a) ? 'rgba(201,90,66,0.4)' : 'var(--border)'};
+          <button id="galr-${i}-${a}" onclick="toggleGuestAllergen(${i},'${a}')"
+            style="padding:4px 10px;border-radius:20px;
+            border:1px solid ${g.allergens.includes(a) ? 'rgba(201,90,66,0.4)' : 'var(--border)'};
             background:${g.allergens.includes(a) ? 'var(--coral-dim)' : 'transparent'};
             color:${g.allergens.includes(a) ? 'var(--coral2)' : 'var(--text3)'};
             font-size:10px;cursor:pointer;font-family:DM Sans,sans-serif;transition:all 0.15s">
@@ -1780,6 +1810,11 @@ function parseTimeline(raw) {
       return { time: p[0]||'', emoji: p[1]||'●', title: p[2]||'', detail: p[3]||'' };
     })
     .filter(s => s.title);
+}
+
+function extractCostVal(sectionText) {
+  const match = sectionText.match(/COST:\s*₹([\d,]+)/);
+  return match ? parseInt(match[1].replace(/,/g, '')) : 0;
 }
 
 function parse(raw) {
@@ -1919,22 +1954,32 @@ function renderPlan(plan) {
       Select services to order
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap" id="serviceSelectors">
-      ${hasDineout ? `<button class="svc-sel active" data-svc="dineout" onclick="toggleSvc(this)">
-        <span style="color:var(--amber)">🍽</span> &nbsp;Dineout Reservation
-      </button>` : ''}
-      ${hasFood ? `<button class="svc-sel active" data-svc="food" onclick="toggleSvc(this)">
-        <span style="color:var(--coral2)">🛵</span> &nbsp;Food Delivery
-      </button>` : ''}
-      ${hasInstamart ? `<button class="svc-sel active" data-svc="instamart" onclick="toggleSvc(this)">
-        <span style="color:var(--green2)">🛒</span> &nbsp;Instamart Cart
-      </button>` : ''}
+      ${hasDineout ? `
+        <span id="cost-dineout" data-val="${extractCostVal(plan.dineout)}" style="display:none"></span>
+        <button class="svc-sel active" data-svc="dineout" onclick="toggleSvc(this)">
+          <span style="color:var(--amber)">🍽</span> &nbsp;Dineout
+          <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--text3);margin-left:4px">₹${extractCostVal(plan.dineout).toLocaleString('en-IN')}</span>
+        </button>` : ''}
+      ${hasFood ? `
+        <span id="cost-food" data-val="${extractCostVal(plan.food)}" style="display:none"></span>
+        <button class="svc-sel active" data-svc="food" onclick="toggleSvc(this)">
+          <span style="color:var(--coral2)">🛵</span> &nbsp;Food Delivery
+          <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--text3);margin-left:4px">₹${extractCostVal(plan.food).toLocaleString('en-IN')}</span>
+        </button>` : ''}
+      ${hasInstamart ? `
+        <span id="cost-instamart" data-val="${extractCostVal(plan.instamart)}" style="display:none"></span>
+        <button class="svc-sel active" data-svc="instamart" onclick="toggleSvc(this)">
+          <span style="color:var(--green2)">🛒</span> &nbsp;Instamart
+          <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--text3);margin-left:4px">₹${extractCostVal(plan.instamart).toLocaleString('en-IN')}</span>
+        </button>` : ''}
     </div>
-    <div style="display:flex;gap:10px">
+    <div style="display:flex;gap:10px;align-items:center">
       <button class="btn-sec" onclick="resetPlan()">↺ &nbsp;New plan</button>
       <button class="btn-pri" onclick="approveOrder()">
         ✓ &nbsp;Approve & Order
         <span class="phase-note">PHASE 2</span>
       </button>
+      <span id="orderTotal" style="font-family:'DM Mono',monospace;font-size:16px;color:var(--gold);margin-left:8px"></span>
     </div>
   </div>
   <div class="chat-section reveal" id="r7">
@@ -1959,10 +2004,13 @@ function renderPlan(plan) {
   c.style.display = 'block';
 
   // Staggered reveals
-  ['r0','r1','r2','r3','r4','r5','r6','r7'].forEach((id, i) => {
+['r0','r1','r2','r3','r4','r5','r6','r7'].forEach((id, i) => {
     const el = document.getElementById(id);
     if (el) reveal(el, i * 120);
   });
+
+  // Update order total after DOM is ready
+  setTimeout(updateOrderTotal, 150);
 }
 
 // ── GENERATE ───────────────────────────────────────────────────────
@@ -2167,13 +2215,30 @@ function toggleSvc(el) {
   el.classList.toggle('active');
 }
 
+function toggleSvc(el) {
+  el.classList.toggle('active');
+  updateOrderTotal();
+}
+
+function updateOrderTotal() {
+  const selected = [...document.querySelectorAll('.svc-sel.active')].map(el => el.dataset.svc);
+  const costs = {
+    dineout: parseInt(document.getElementById('cost-dineout')?.dataset.val || 0),
+    food: parseInt(document.getElementById('cost-food')?.dataset.val || 0),
+    instamart: parseInt(document.getElementById('cost-instamart')?.dataset.val || 0),
+  };
+  const total = selected.reduce((sum, svc) => sum + (costs[svc] || 0), 0);
+  const el = document.getElementById('orderTotal');
+  if (el) el.textContent = total > 0 ? `₹${total.toLocaleString('en-IN')}` : '';
+}
+
 function approveOrder() {
   const selected = [...document.querySelectorAll('.svc-sel.active')].map(el => el.dataset.svc);
   if (selected.length === 0) {
     alert('Please select at least one service to order.');
     return;
   }
-  alert(`Phase 2 feature — will place orders for: ${selected.join(', ')}`);
+  alert(`Phase 2 — will place orders for: ${selected.join(', ')}`);
 }
 </script>
 </body>
