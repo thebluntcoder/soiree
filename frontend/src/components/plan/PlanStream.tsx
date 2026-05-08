@@ -95,10 +95,6 @@ return (
       </>
     )}
 
-    {status === 'error' && (
-      <p className="text-coral-400 text-sm">{streamState.error}</p>
-    )}
-
     {status === 'done' && (
       <div className="flex gap-3 mt-2 animate-fade-up">
         <button onClick={onReset}
