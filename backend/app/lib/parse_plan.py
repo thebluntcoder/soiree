@@ -69,7 +69,7 @@ def extract_cost(text: str, pattern: str) -> str:
     Extract a cost string matching pattern from text.
     Returns empty string if not found.
 
-    Example: extract_cost("TOTAL: ₹2,417", r'TOTAL:\s*(₹[\d,]+)') → '₹2,417'
+    Example: extract_cost("TOTAL: 2417", "TOTAL: ([0-9,]+)") returns "2417"
     """
     match = re.search(pattern, text)
     return match.group(1) if match else ""
