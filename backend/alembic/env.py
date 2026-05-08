@@ -38,7 +38,7 @@ The app still uses asyncpg at runtime — these are separate concerns.
 """
 
 from logging.config import fileConfig
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, create_engine
 from alembic import context
 from sqlmodel import SQLModel
 
@@ -81,11 +81,15 @@ def run_migrations_online() -> None:
     Run migrations in online mode — connects to DB and applies changes.
     Normal mode for: alembic upgrade head / alembic downgrade -1
     """
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    import os
+
+    # Use DATABASE_URL from environment if available (Railway/production)
+    # Fall back to alembic.ini value for local development
+    # Convert asyncpg URL back to psycopg2 for Alembic (Alembic is sync)
+    db_url = os.environ.get("DATABASE_URL", config.get_main_option("sqlalchemy.url"))
+    db_url = db_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+    connectable = create_engine(db_url, poolclass=pool.NullPool)
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
