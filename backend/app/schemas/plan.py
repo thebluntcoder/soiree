@@ -66,11 +66,11 @@ class Guest(BaseModel):
     If dietary_tags is empty, group-level tags from PlanRequest apply.
     """
 
-    name: Optional[str] = Field(default=None, description="Guest's name, e.g. 'Anjali'")
-    dietary_tags: list[str] = Field(
-        default=[],
-        description="Per-guest dietary restrictions. E.g. ['Veg', 'No-Nuts']. "
-        "These are merged with group-level tags for menu filtering.",
+    name: Optional[str] = Field(default=None)
+    dietary_tags: list[str] = Field(default=[])
+    pref: str = Field(default="any", description="any/veg/non-veg")
+    allergens: list[str] = Field(
+        default=[], description="List of allergens e.g. ['Nuts', 'Dairy']"
     )
 
 
@@ -131,4 +131,15 @@ class PlanRequest(BaseModel):
         max_length=500,
         description="Free-text context for the AI. "
         "E.g. 'It is our anniversary' or 'One guest is allergic to nuts'.",
+    )
+
+    # Device GPS coordinates — optional, improves location accuracy
+    # Used by Dineout (lat/lng) — Food/Instamart still use saved addressId
+    lat: Optional[float] = Field(
+        default=None,
+        description="Device GPS latitude"
+    )
+    lng: Optional[float] = Field(
+        default=None,
+        description="Device GPS longitude"
     )

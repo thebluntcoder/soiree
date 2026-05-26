@@ -149,9 +149,13 @@ def build_user_prompt(
         dietary_tags = event_data.get("dietary_tags", [])
         dietary_summary = ", ".join(dietary_tags) if dietary_tags else "None specified"
 
-    # Format start time
+    # Format start time — handle 30-minute increments (e.g. 20.5 = 8:30 PM)
     hour = event_data.get("start_hour", 20)
-    start_time = f"{hour}:00 {'AM' if hour < 12 else 'PM'}"
+    hour_floor = int(hour)
+    mins = "30" if hour % 1 == 0.5 else "00"
+    period = "AM" if hour_floor < 12 else "PM"
+    display_hour = hour_floor if hour_floor <= 12 else hour_floor - 12
+    start_time = f"{display_hour}:{mins} {period}"
 
     # Health focus label
     health_focus = event_data.get("health_focus", 50)

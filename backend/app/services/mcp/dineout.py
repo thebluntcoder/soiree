@@ -7,12 +7,21 @@ of Soirée's hybrid mode. It handles:
   - Checking real-time slot availability
   - Booking a table for a specific time and party size
 
-Swiggy Dineout MCP tools:
-  - search_restaurants_dineout → find dine-in restaurants
-  - get_restaurant_details     → full info: menu, ambience, photos
-  - get_available_slots        → real-time availability for a date/time/party
-  - book_table                 → make a reservation (Phase 2)
-  - get_booking_status         → check reservation status (Phase 2)
+REAL TOOL NAMES (confirmed from Swiggy docs):
+  get_saved_locations       → resolve user's saved locations (returns lat/lng)
+  search_restaurants_dineout → find dine-in restaurants by lat/lng + query
+  get_restaurant_details    → ratings, amenities, menu images, Dineout deals
+  get_available_slots       → 7-day forward availability by date + guestCount
+  book_table                → make a reservation (Phase 2) — NOT idempotent
+  get_booking_status        → check reservation status by bookingId
+
+CRITICAL DIFFERENCES FROM FOOD/INSTAMART:
+  - Dineout uses lat/lng from get_saved_locations (NOT addressId)
+  - Slots have slotId — pass slotId to book_table, not a time string
+  - book_table is NOT idempotent — on 5xx call get_booking_status before retrying
+  - Filter to restaurants where availability is "AVAILABLE"
+  - Slots are 7-day forward, broken into breakfast/lunch/dinner bands
+  - All times are IST
 
 CONCEPT: Dineout vs Food search — why they're different clients
 ----------------------------------------------------------------
@@ -28,7 +37,9 @@ CONCEPT: Slot availability is time-sensitive
 ---------------------------------------------
 Unlike food menus (cached 30min), slot availability changes by the minute
 as other users book. We NEVER cache slot data — always fetch live.
-This is enforced in the orchestrator via a no-cache flag.
+The slotId from get_available_slots must be passed directly to book_table.
+
+MCP URL: https://mcp.swiggy.com/dineout
 """
 
 import asyncio
@@ -43,37 +54,62 @@ class DineoutMCPClient:
     Handles restaurant discovery and table reservations for dine-in events.
     Slot availability is always fetched live — never cached.
 
+    KEY DIFFERENCE: Dineout uses lat/lng from get_saved_locations(),
+    while Food/Instamart use addressId from get_addresses().
+    These are different scopes — never mix them.
+
     Usage:
         client = DineoutMCPClient()
+        # Step 1: resolve location (lat/lng, not addressId)
+        locations = await client.get_saved_locations()
+        lat = locations["data"][0]["lat"]
+        lng = locations["data"][0]["lng"]
+        # Step 2: search restaurants
         results = await client.search_restaurants(
-            location="Bandra, Mumbai",
+            lat=lat, lng=lng,
             guest_count=4,
-            dietary_filters=["Veg"],
             event_type="birthday",
-            budget_per_head=1000,
         )
+        # Step 3: check slots (never cache this)
+        slots = await client.get_available_slots(
+            restaurant_id="dine_001",
+            date="2026-05-10",
+            guest_count=4,
+        )
+        # Step 4: book using slotId (not time string)
+        # booking = await client.book_table(
+        #     restaurant_id="dine_001",
+        #     slot_id=slots["data"]["slots"][0]["slotId"],
+        #     guest_count=4,
+        # )
     """
 
+    MCP_URL = "https://mcp.swiggy.com/dineout"
+
     def __init__(self):
-        self.server_url = settings.SWIGGY_MCP_DINEOUT_URL
+        self.server_url = settings.SWIGGY_MCP_DINEOUT_URL or self.MCP_URL
         self.api_key = settings.SWIGGY_API_KEY
-        self.use_mock = not bool(self.server_url and self.api_key)
+        # Flag to use mock data when MCP credentials aren't configured
+        self.use_mock = not bool(settings.SWIGGY_API_KEY)
 
     async def _call_mcp(self, tool_name: str, params: dict) -> dict:
         """Core MCP tool invocation — see food.py for full explanation."""
         if self.use_mock:
             return await self._mock_dispatch(tool_name, params)
-        # TODO: Real MCP SDK call
+        # TODO: Replace with real MCP SDK call when credentials arrive
         # from mcp import ClientSession
         # async with ClientSession(self.server_url, api_key=self.api_key) as session:
+        #     await session.initialize()
         #     result = await session.call_tool(tool_name, params)
-        #     return result.content
-        raise NotImplementedError("Real MCP connection not yet configured")
+        #     return result.content[0].text
+        raise NotImplementedError("Set SWIGGY_API_KEY to enable real MCP calls")
 
     async def _mock_dispatch(self, tool_name: str, params: dict) -> dict:
         """Route mock calls to appropriate mock method."""
+        # Simulate network latency so async behaviour is realistic in dev
         await asyncio.sleep(0.1)
         dispatch = {
+            "get_saved_locations": self._mock_get_saved_locations,
             "search_restaurants_dineout": self._mock_search_restaurants,
             "get_restaurant_details": self._mock_get_restaurant_details,
             "get_available_slots": self._mock_get_available_slots,
@@ -84,26 +120,42 @@ class DineoutMCPClient:
         return await handler(params)
 
     # -------------------------------------------------------------------------
-    # Public interface
+    # Public interface — these are what orchestrator.py calls
     # -------------------------------------------------------------------------
+
+    async def get_saved_locations(self) -> dict[str, Any]:
+        """
+        Resolve user's saved locations — returns lat/lng.
+
+        MUST be called before search_restaurants_dineout.
+        Dineout uses lat/lng, NOT addressId (unlike Food/Instamart).
+
+        Returns:
+            dict with "data" list of locations, each containing:
+              - id, label: "Home"/"Work" etc.
+              - lat, lng: coordinates for Dineout search
+              - displayText: human-readable location string
+        """
+        return await self._call_mcp("get_saved_locations", {})
 
     async def search_restaurants(
         self,
-        location: str,
-        guest_count: int,
-        dietary_filters: list[str],
+        lat: float,
+        lng: float,
+        query: str = "",
+        guest_count: int = 2,
+        dietary_filters: list[str] | None = None,
         event_type: str = "date",
         budget_per_head: int = 1000,
         start_hour: int = 20,
     ) -> dict[str, Any]:
         """
-        Search for dine-in restaurants matching event criteria.
-
-        Also fetches available slots for top results in one shot —
-        avoids a second round-trip when the orchestrator needs both.
+        Search for dine-in restaurants by lat/lng (NOT addressId).
+        Filter results to availability: "AVAILABLE" before presenting.
 
         Args:
-            location: city or neighbourhood for geo-search
+            lat, lng: from get_saved_locations() or device GPS — Dineout-specific
+            query: search query e.g. "italian", "romantic rooftop"
             guest_count: party size (used for table availability check)
             dietary_filters: cuisine/dietary constraints
             event_type: shapes ambience filtering (romantic/corporate/casual)
@@ -111,17 +163,20 @@ class DineoutMCPClient:
             start_hour: preferred start time in 24h (used for slot search)
 
         Returns:
-            dict with "restaurants" list, each containing:
-              - id, name, cuisine, rating, cost_for_two, ambience tags
-              - available_slots: list of bookable time slots
+            dict with "data.restaurants" list, each containing:
+              - id, name, cuisine, rating, costForTwo, ambience tags
+              - availableSlots: list of {slotId, time, band} — use slotId for booking
               - offers: active Dineout offers (pre-payment discounts etc.)
+              - availability: only present "AVAILABLE" restaurants
         """
         return await self._call_mcp(
             "search_restaurants_dineout",
             {
-                "location": location,
-                "guest_count": guest_count,
-                "dietary_filters": dietary_filters,
+                "lat": lat,
+                "lng": lng,
+                "query": query,
+                "guestCount": guest_count,
+                "dietary_filters": dietary_filters or [],
                 "event_type": event_type,
                 "budget_per_head": budget_per_head,
                 "start_hour": start_hour,
@@ -132,67 +187,114 @@ class DineoutMCPClient:
         self,
         restaurant_id: str,
         date: str,
-        party_size: int,
-        preferred_hour: int,
+        guest_count: int,
     ) -> dict[str, Any]:
         """
         Fetch real-time slot availability for a specific restaurant.
 
-        IMPORTANT: Never cache this — slots change in real time.
-        Called when user wants to check a specific restaurant's availability
-        after the initial plan is generated.
+        Returns 7-day forward availability broken into breakfast/lunch/dinner bands.
+        Each slot has a slotId — pass this to book_table (NOT the time string).
+
+        IMPORTANT: Never cache this — slots change in real time as others book.
+        All times are in IST.
 
         Args:
             restaurant_id: from search_restaurants response
-            date: ISO date string e.g. "2026-04-25"
-            party_size: number of guests
-            preferred_hour: preferred time in 24h, e.g. 20 for 8 PM
+            date: ISO date string e.g. "2026-05-10"
+            guest_count: number of guests (affects table availability)
 
         Returns:
-            dict with available time slots as strings e.g. ["7:30 PM", "8:00 PM", "8:30 PM"]
+            dict with "data.slots" list: [{slotId, time, band, available}]
         """
         return await self._call_mcp(
             "get_available_slots",
             {
-                "restaurant_id": restaurant_id,
+                "restaurantId": restaurant_id,
                 "date": date,
-                "party_size": party_size,
-                "preferred_hour": preferred_hour,
+                "guestCount": guest_count,
             },
         )
 
     async def get_restaurant_details(self, restaurant_id: str) -> dict[str, Any]:
         """
-        Fetch full restaurant details: menu highlights, ambience, photos, policies.
+        Fetch full restaurant details: ratings, amenities, photos, Dineout deals.
         Used when the AI needs more context to write a compelling recommendation.
         """
         return await self._call_mcp(
-            "get_restaurant_details",
-            {
-                "restaurant_id": restaurant_id,
-            },
+            "get_restaurant_details", {"restaurantId": restaurant_id}
         )
 
     # -------------------------------------------------------------------------
-    # Mock responses
+    # Mock responses — mirror real Dineout MCP response shapes.
+    # Key changes from original:
+    #   - Uses lat/lng params instead of location string
+    #   - Slots now have slotId (not just time string) for booking
+    #   - availability field is "AVAILABLE" (not "open")
     # -------------------------------------------------------------------------
+
+    async def _mock_get_saved_locations(self, params: dict) -> dict:
+        """Mock saved locations with real Lucknow coordinates."""
+        return {
+            "data": [
+                {
+                    "id": "loc_001",
+                    "label": "Home",
+                    "lat": 26.8467,
+                    "lng": 80.9462,
+                    "displayText": "Hazratganj, Lucknow",
+                },
+                {
+                    "id": "loc_002",
+                    "label": "Work",
+                    "lat": 26.8631,
+                    "lng": 80.9915,
+                    "displayText": "Gomti Nagar, Lucknow",
+                },
+            ]
+        }
 
     async def _mock_search_restaurants(self, params: dict) -> dict:
         """
         Mock Dineout search response.
         Restaurants are occasion-appropriate with realistic Indian pricing.
+        Slots now include slotId for booking (real API requirement).
         """
         event_type = params.get("event_type", "date")
         budget = params.get("budget_per_head", 1000)
-        guests = params.get("guest_count", 2)
+        guests = params.get("guestCount", 2)
         hour = params.get("start_hour", 20)
 
-        # Format preferred time for slot display
-        preferred_time = f"{hour}:00 {'AM' if hour < 12 else 'PM'}"
+        # Slots include slotId — this is what gets passed to book_table
         slot_times = (
-            [f"{hour - 1}:30 PM", f"{hour}:00 PM", f"{hour}:30 PM", f"{hour + 1}:00 PM"]
+            [
+                {
+                    "slotId": f"slot_{hour - 1}30",
+                    "time": f"{hour - 1}:30 PM",
+                    "band": "dinner",
+                    "available": True,
+                },
+                {
+                    "slotId": f"slot_{hour}00",
+                    "time": f"{hour}:00 PM",
+                    "band": "dinner",
+                    "available": True,
+                },
+                {
+                    "slotId": f"slot_{hour}30",
+                    "time": f"{hour}:30 PM",
+                    "band": "dinner",
+                    "available": True,
+                },
+            ]
             if hour > 12
-            else [preferred_time]
+            else [
+                {
+                    "slotId": "slot_default",
+                    "time": f"{hour}:00 PM",
+                    "band": "dinner",
+                    "available": True,
+                }
+            ]
         )
 
         restaurants = [
@@ -203,18 +305,19 @@ class DineoutMCPClient:
                 else "The Leela Terrace",
                 "cuisine": "Modern Indian",
                 "rating": 4.6,
-                "cost_for_two": min(budget * 2, 1800),
+                "costForTwo": min(budget * 2, 1800),
+                "availability": "AVAILABLE",
                 "ambience": ["Rooftop", "Romantic", "Live Music"]
                 if event_type == "date"
                 else ["Casual", "Trendy"],
-                "distance_km": 1.5,
-                "dress_code": "Smart Casual",
-                "known_for": [
+                "distanceKm": 1.5,
+                "dressCode": "Smart Casual",
+                "knownFor": [
                     "Molecular gastronomy",
                     "Craft cocktails",
                     "Instagram-worthy plating",
                 ],
-                "available_slots": slot_times[:3],
+                "availableSlots": slot_times[:3],
                 "offers": [
                     {
                         "type": "pre_booking",
@@ -230,16 +333,17 @@ class DineoutMCPClient:
                 else "Smoke House Deli",
                 "cuisine": "North Indian" if event_type == "family" else "European",
                 "rating": 4.4,
-                "cost_for_two": min(budget * 2, 2200),
+                "costForTwo": min(budget * 2, 2200),
+                "availability": "AVAILABLE",
                 "ambience": ["Family-friendly", "Spacious"]
                 if event_type == "family"
                 else ["Intimate", "Cosy"],
-                "distance_km": 2.3,
-                "dress_code": "Casual",
-                "known_for": ["Dal Makhani", "Tandoori platters"]
+                "distanceKm": 2.3,
+                "dressCode": "Casual",
+                "knownFor": ["Dal Makhani", "Tandoori platters"]
                 if event_type == "family"
                 else ["Wood-fired pizza", "All-day brunch"],
-                "available_slots": slot_times[:2],
+                "availableSlots": slot_times[:2],
                 "offers": [
                     {
                         "type": "discount",
@@ -255,53 +359,87 @@ class DineoutMCPClient:
                 "name": "The Black Sheep Bistro",
                 "cuisine": "Contemporary",
                 "rating": 4.5,
-                "cost_for_two": min(budget * 2, 2500),
+                "costForTwo": min(budget * 2, 2500),
+                "availability": "AVAILABLE",
                 "ambience": ["Chic", "Intimate", "Wine bar"],
-                "distance_km": 3.1,
-                "dress_code": "Smart Casual",
-                "known_for": [
+                "distanceKm": 3.1,
+                "dressCode": "Smart Casual",
+                "knownFor": [
                     "Extensive wine list",
                     "Chef's tasting menu",
                     "Housemade pasta",
                 ],
-                "available_slots": slot_times,
+                "availableSlots": slot_times,
                 "offers": [],
             },
         ]
 
         return {
-            "restaurants": restaurants,
-            "location": params.get("location"),
-            "guest_count": guests,
-            "total_results": len(restaurants),
-            "note": "Slots fetched live — availability may change",
+            "data": {
+                "restaurants": restaurants,
+                "lat": params.get("lat"),
+                "lng": params.get("lng"),
+                "totalResults": len(restaurants),
+                "note": "Slots fetched live — availability may change",
+            }
         }
 
     async def _mock_get_available_slots(self, params: dict) -> dict:
-        """Mock slot availability for a specific restaurant."""
-        hour = params.get("preferred_hour", 20)
+        """
+        Mock slot availability for a specific restaurant.
+        Slots include slotId — the real booking identifier.
+        """
         return {
-            "restaurant_id": params["restaurant_id"],
-            "date": params.get("date"),
-            "party_size": params.get("party_size"),
-            "available_slots": [
-                f"{hour - 1}:30 PM",
-                f"{hour}:00 PM",
-                f"{hour}:30 PM",
-            ],
-            "note": "Slots are live — book quickly to confirm",
+            "data": {
+                "restaurantId": params["restaurantId"],
+                "date": params.get("date"),
+                "guestCount": params.get("guestCount"),
+                "slots": [
+                    {
+                        "slotId": "slot_1930",
+                        "time": "7:30 PM",
+                        "band": "dinner",
+                        "available": True,
+                    },
+                    {
+                        "slotId": "slot_2000",
+                        "time": "8:00 PM",
+                        "band": "dinner",
+                        "available": True,
+                    },
+                    {
+                        "slotId": "slot_2030",
+                        "time": "8:30 PM",
+                        "band": "dinner",
+                        "available": True,
+                    },
+                    {
+                        "slotId": "slot_2100",
+                        "time": "9:00 PM",
+                        "band": "dinner",
+                        "available": False,
+                    },
+                ],
+                "note": "Slots are live — book quickly to confirm",
+            }
         }
 
     async def _mock_get_restaurant_details(self, params: dict) -> dict:
-        """Mock detailed restaurant info."""
+        """Mock detailed restaurant info including Dineout-exclusive deals."""
         return {
-            "restaurant_id": params["restaurant_id"],
-            "description": "A contemporary dining experience with a focus on seasonal ingredients and bold flavours.",
-            "highlights": [
-                "Chef's table available",
-                "Private dining room for groups",
-                "Valet parking",
-            ],
-            "parking": True,
-            "accepts_large_groups": True,
+            "data": {
+                "id": params["restaurantId"],
+                "description": "A contemporary dining experience with seasonal ingredients and bold flavours.",
+                "amenities": [
+                    "Valet parking",
+                    "Private dining room",
+                    "Wheelchair accessible",
+                ],
+                "dineoutDeals": [
+                    "15% off on pre-booking",
+                    "Complimentary dessert on birthdays",
+                ],
+                "parking": True,
+                "acceptsLargeGroups": True,
+            }
         }

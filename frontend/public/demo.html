@@ -1643,6 +1643,8 @@ const S = {
   occasion: 'date',
   venue: 'hybrid',
   location: '',
+  lat: null,
+  lng: null,
   hour: 20,
   budget: 3000,
   guestCount: 2,
@@ -1827,6 +1829,9 @@ async function gps() {
   try {
     const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej));
     const { latitude: lat, longitude: lon } = pos.coords;
+    // Store GPS coordinates — sent to backend for accurate Dineout search
+    S.lat = lat;
+    S.lng = lon;
     const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`);
     const d = await r.json();
     const city = d.address?.city || d.address?.town || d.address?.suburb || 'Your location';
@@ -2139,6 +2144,8 @@ async function generate() {
     event_type: S.occasion,
     venue_mode: S.venue,
     location: S.location,
+    lat: S.lat || null,
+    lng: S.lng || null,
     start_hour: S.hour,
     budget: S.budget,
     guest_count: S.guestMode === 'named' ? Math.max(S.guests.length, 1) : S.guestCount,

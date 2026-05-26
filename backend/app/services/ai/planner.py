@@ -1,49 +1,39 @@
 """
 services/ai/planner.py — Claude streaming plan generator.
 
-CONCEPT: Streaming with Server-Sent Events (SSE)
---------------------------------------------------
-Instead of waiting for the full plan to generate (could take 10-15 seconds),
-we stream it token-by-token to the frontend as Claude writes it.
-
-The flow:
-  1. Frontend opens an EventSource connection to POST /api/v1/plans/generate
-  2. FastAPI returns a StreamingResponse with media_type="text/event-stream"
-  3. As Claude generates tokens, we yield them in SSE format: "data: <token>\n\n"
-  4. Frontend receives each token, appends it to the UI in real time
-  5. When done, we yield "data: [DONE]\n\n" as a signal to close
-
-SSE format spec:
-  data: <content>\n\n    ← each message ends with double newline
-  data: [DONE]\n\n       ← sentinel value signals stream end
-
 CONCEPT: The full pipeline
 ----------------------------
 generate_plan() orchestrates 3 stages:
 
-  Stage 1 — Parallel MCP calls (asyncio.gather)
-    All relevant Swiggy APIs fire simultaneously.
+  Stage 1 — Parallel MCP calls + address resolution
+    Orchestrator resolves addressId (Food/Instamart) and lat/lng (Dineout)
+    then fires all relevant Swiggy APIs simultaneously via asyncio.gather().
     ~100-300ms depending on network.
 
   Stage 2 — Offer enrichment
     Live offers fetched and injected into the prompt context.
     ~50-100ms (also async).
 
-  Stage 3 — Claude streaming
-    Prompt sent to Claude claude-sonnet-4-20250514 with full MCP context.
-    Response streams token-by-token back to the caller.
-    ~3-8 seconds for a full plan.
+  Stage 3 — Claude response collection
+    Full response collected from Claude claude-sonnet-4-20250514 with
+    all MCP context injected. Newlines encoded as ⏎ before SSE transmission
+    to prevent section markers from fragmenting across SSE frames.
 
-CONCEPT: Anthropic Python SDK streaming
------------------------------------------
-The SDK provides client.messages.stream() as an async context manager.
-Inside it, stream.text_stream is an async iterator yielding text chunks:
+CONCEPT: Why we collect rather than stream token-by-token
+-----------------------------------------------------------
+Token-by-token streaming caused section markers like [TIMELINE] to arrive
+on separate SSE frames without a "data: " prefix — they got dropped by
+the frontend parser. Fix: collect the full response, encode all newlines
+as ⏎, send as one SSE message. Frontend decodes ⏎ back to \n.
 
-    async with client.messages.stream(...) as stream:
-        async for text in stream.text_stream:
-            yield text   # each text is 1-10 characters typically
+Trade-off: user waits ~5s then sees the complete plan at once.
+The generating animation in the frontend masks this wait effectively.
 
-We yield these chunks directly up the call chain to the SSE response.
+CONCEPT: Anthropic Python SDK
+--------------------------------
+The SDK's client.messages.create() collects the full response.
+For the follow-up chat (generate_followup), we use client.messages.stream()
+since that's a short conversational reply where token-by-token is fine.
 """
 
 import asyncio
@@ -94,10 +84,11 @@ async def generate_plan(event_data: dict[str, Any]) -> AsyncIterator[str]:
 
     Args:
         event_data: dict from PlanRequest.model_dump() containing all
-                    event configuration fields
+                    event configuration fields including optional lat/lng
+                    from device GPS for more accurate Dineout search
 
     Yields:
-        SSE-formatted strings: "data: <token>\n\n"
+        SSE-formatted strings: "data: <encoded_plan>\n\n"
         Terminal signal:       "data: [DONE]\n\n"
         Error signal:          "data: [ERROR] <message>\n\n"
 
@@ -111,9 +102,9 @@ async def generate_plan(event_data: dict[str, Any]) -> AsyncIterator[str]:
 
     try:
         # ── Stage 1: Parallel MCP calls ──────────────────────────────────────
-        # Fire all relevant Swiggy APIs concurrently.
-        # This is the asyncio.gather() call described in orchestrator.py.
-        # We also fire the offers fetch concurrently using gather at this level.
+        # Orchestrator resolves addresses first (addressId for Food/Instamart,
+        # lat/lng for Dineout), then fires all relevant APIs concurrently.
+        # Device GPS coordinates are passed through if available.
 
         mcp_task = orchestrator.gather_context(
             location=event_data["location"],
@@ -124,6 +115,9 @@ async def generate_plan(event_data: dict[str, Any]) -> AsyncIterator[str]:
             budget=event_data["budget"],
             start_hour=event_data.get("start_hour", 20),
             health_focus=event_data.get("health_focus", 50),
+            # Optional device GPS — improves Dineout search accuracy
+            lat=event_data.get("lat"),
+            lng=event_data.get("lng"),
         )
 
         offers_task = offers_engine.get_active_offers(
@@ -153,14 +147,9 @@ async def generate_plan(event_data: dict[str, Any]) -> AsyncIterator[str]:
             offers=offers,
         )
 
-        # ── Stage 3: Stream Claude response ───────────────────────────────────
-        # client.messages.stream() opens a streaming connection to Anthropic.
-        # We use claude-sonnet-4-20250514 — best balance of speed and quality.
-        # max_tokens=2000: enough for a full plan with all sections.
-# Collect full response then send as one chunk.
-        # Streaming token-by-token causes section markers to arrive
-        # on separate SSE frames without data: prefix, getting dropped.
-        # Trade-off: user waits ~5s then sees complete plan at once.
+        # ── Stage 3: Collect full Claude response ─────────────────────────────
+        # We use create() (not stream()) here — see module docstring for why.
+        # Newlines encoded as ⏎ to prevent SSE frame fragmentation.
         message = await client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=2000,
@@ -168,12 +157,9 @@ async def generate_plan(event_data: dict[str, Any]) -> AsyncIterator[str]:
             messages=[{"role": "user", "content": user_prompt}],
         )
         full_text = message.content[0].text
-        # Send as single SSE message with newlines encoded
-        safe = full_text.replace('\n', '⏎')
+        # Encode newlines as ⏎ — frontend decodes back to \n after SSE reassembly
+        safe = full_text.replace("\n", "⏎")
         yield f"data: {safe}\n\n"
-
-        # Signal stream completion to frontend
-        yield "data: [DONE]\n\n"
 
     except anthropic.AuthenticationError:
         yield "data: [ERROR] Invalid Anthropic API key — check ANTHROPIC_API_KEY in .env\n\n"
@@ -181,6 +167,9 @@ async def generate_plan(event_data: dict[str, Any]) -> AsyncIterator[str]:
         yield "data: [ERROR] Anthropic rate limit reached — please try again in a moment\n\n"
     except Exception as e:
         yield f"data: [ERROR] Unexpected error: {str(e)}\n\n"
+    finally:
+        # Always signal completion so frontend closes the stream
+        yield "data: [DONE]\n\n"
 
 
 async def generate_followup(
@@ -200,16 +189,17 @@ async def generate_followup(
     send the full history with each follow-up. Claude uses this context
     to give coherent answers without the user re-explaining everything.
 
-    The system prompt is lighter here — no need for the full output format,
-    just conversational responses about the existing plan.
+    We use stream() here (unlike generate_plan) because follow-up replies
+    are short conversational text — no section markers to fragment, so
+    token-by-token streaming is fine and gives a better typing effect.
 
     Args:
         user_message: the follow-up question or instruction
-        conversation_history: previous messages in this session
+        conversation_history: previous {role, content} dicts from this session
         event_data: original event config for context
 
     Yields:
-        SSE-formatted text chunks
+        SSE-formatted text chunks, then "data: [DONE]\n\n"
     """
     client, _, _ = _get_clients()
 
@@ -229,11 +219,7 @@ Never invent new restaurant names or prices — refer only to what was in the or
             messages=messages,
         ) as stream:
             async for text in stream.text_stream:
-                # Replace newlines within chunk so each SSE message
-                # stays on one line — prevents markers getting split
-                # across multiple SSE frames and losing their prefix
-                safe = text.replace('\n', '⏎')
-                yield f"data: {safe}\n\n"
+                yield f"data: {text}\n\n"
         yield "data: [DONE]\n\n"
     except Exception as e:
         yield f"data: [ERROR] {str(e)}\n\n"
