@@ -2281,7 +2281,7 @@ async function sendChat() {
   document.getElementById('chatSend').disabled = true;
 
   try {
-    const res = await fetch('https://soiree-production.up.railway.app/api/v1/plans/chat', {
+  const chatResponse = await fetch('https://soiree-production.up.railway.app/api/v1/plans/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2291,7 +2291,7 @@ async function sendChat() {
       }),
     });
 
-    const reader = res.body.getReader();
+    const reader = chatResponse.body.getReader();
     const dec = new TextDecoder('utf-8');
     let buf = '', reply = '';
 
@@ -2331,9 +2331,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-function toggleSvc(el) {
-  el.classList.toggle('active');
-}
 
 function toggleSvc(el) {
   el.classList.toggle('active');
