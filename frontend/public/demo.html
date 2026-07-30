@@ -2174,9 +2174,9 @@ async function generate() {
       body: JSON.stringify(req),
     });
 
-    if (!res.ok) throw new Error(res.status);
+    if (!response.ok) throw new Error(response.status);
 
-    const reader = res.body.getReader();
+    const reader = response.body.getReader();
     const dec = new TextDecoder('utf-8');
     let buf = '', acc = '';
 
