@@ -151,7 +151,7 @@ async def generate_plan(event_data: dict[str, Any]) -> AsyncIterator[str]:
         # We use create() (not stream()) here — see module docstring for why.
         # Newlines encoded as ⏎ to prevent SSE frame fragmentation.
         message = await client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=2000,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
@@ -213,7 +213,7 @@ Never invent new restaurant names or prices — refer only to what was in the or
 
     try:
         async with client.messages.stream(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=400,
             system=system,
             messages=messages,
