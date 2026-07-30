@@ -34,6 +34,54 @@
   --amber-dim: rgba(184,122,48,0.1);
 }
 
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #faf7f2;
+    --surface: #f2ede4;
+    --surface2: #e8e0d0;
+    --surface3: #ddd4c0;
+    --border: rgba(140,100,40,0.1);
+    --border2: rgba(140,100,40,0.2);
+    --border3: rgba(140,100,40,0.35);
+    --gold: #8a6520;
+    --gold2: #a07828;
+    --gold3: #b88c30;
+    --gold-dim: rgba(140,101,32,0.2);
+    --gold-glow: rgba(140,101,32,0.08);
+    --text: #1a1208;
+    --text2: rgba(26,18,8,0.62);
+    --text3: rgba(26,18,8,0.38);
+    --text4: rgba(26,18,8,0.18);
+    --coral: #b84030;
+    --coral2: #cc5040;
+    --coral-dim: rgba(184,64,48,0.1);
+    --green: #2d6040;
+    --green2: #3d7850;
+    --green-dim: rgba(45,96,64,0.1);
+    --amber: #9a6018;
+    --amber-dim: rgba(154,96,24,0.1);
+  }
+
+  body::after { opacity: 0.15; }
+
+  .load-logo {
+    background: linear-gradient(135deg, var(--gold), var(--gold3));
+    -webkit-background-clip: text;
+    background-clip: text;
+  }
+
+  header {
+    background: rgba(250,247,242,0.85);
+    border-bottom-color: var(--border2);
+  }
+
+  .sidebar { background: rgba(250,247,242,0.6); }
+
+  input[type=range] {
+    background: linear-gradient(to right, var(--gold) 0%, var(--gold) var(--pct, 50%), rgba(140,100,40,0.2) var(--pct, 50%));
+  }
+}
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 html { scroll-behavior: smooth; }
@@ -472,7 +520,7 @@ header {
 .venue-btn.active { background: var(--gold); color: var(--bg); border-color: var(--gold); font-weight: 500; box-shadow: 0 4px 16px var(--gold-dim); }
 
 /* Input */
-.input-wrap { position: relative; }
+.input-wrap { position: relative; overflow: visible; }
 
 .inp {
   width: 100%;
@@ -499,6 +547,7 @@ header {
   cursor: pointer;
   opacity: 0.4;
   transition: all 0.2s;
+  z-index: 2;
 }
 
 .inp-icon:hover { opacity: 1; transform: translateY(-50%) scale(1.2); }
@@ -1072,7 +1121,6 @@ input[type=range]::-webkit-slider-thumb:hover {
   font-size: 13px;
   color: var(--text2);
   line-height: 1.85;
-  white-space: pre-wrap;
 }
 
 /* Offers */
@@ -1985,7 +2033,7 @@ function renderPlan(plan) {
         <span class="card-title-text">Dineout Reservation</span>
         <span class="api-badge badge-d">DINEOUT API</span>
       </div>
-      <div class="card-body">${plan.dineout}</div>
+      <div class="card-body">${formatChatText(plan.dineout)}</div>
     </div>`;
   }
 
@@ -1995,7 +2043,7 @@ function renderPlan(plan) {
         <span class="card-title-text">Food Delivery</span>
         <span class="api-badge badge-f">FOOD API</span>
       </div>
-      <div class="card-body">${plan.food}</div>
+      <div class="card-body">${formatChatText(plan.food)}</div>
     </div>`;
   }
 
@@ -2005,7 +2053,7 @@ function renderPlan(plan) {
         <span class="card-title-text">Instamart Cart</span>
         <span class="api-badge badge-i">INSTAMART API</span>
       </div>
-      <div class="card-body">${plan.instamart}</div>
+      <div class="card-body">${formatChatText(plan.instamart)}</div>
     </div>`;
   }
 
@@ -2023,7 +2071,7 @@ function renderPlan(plan) {
   }
 
   if (plan.cost) {
-    const parts = plan.cost.match(/(Dineout:\s*₹[\d,]+)\s*\|\s*(Food Delivery:\s*₹[\d,]+)\s*\|\s*(Instamart:\s*₹[\d,]+)/);
+    const parts = plan.cost.match(/(Dineout:\s*₹[\d,]+)[|\s]+(Food(?:\s*Delivery)?:\s*₹[\d,]+)[|\s]+(Instamart:\s*₹[\d,]+)/);
     html += `<div class="plan-section reveal" id="r4">
       <div class="section-header">
         <div class="section-line"></div>
