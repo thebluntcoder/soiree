@@ -1668,7 +1668,7 @@ const S = {
 window.addEventListener('load', () => {
   setTimeout(() => {
     document.getElementById('loadScreen').classList.add('hidden');
-    checkSwiggyAuth();
+    checkSwiggyAuth().catch(e => console.warn('Auth check failed:', e));
   }, 2200);
 });
 
@@ -2373,10 +2373,10 @@ async function checkSwiggyAuth() {
   const sessionId = localStorage.getItem('soiree_session_id');
   if (!sessionId) return;
   try {
-    const res = await fetch(
+    const authRes = await fetch(
       `https://soiree-production.up.railway.app/api/v1/auth/status?session_id=${sessionId}`
     );
-    const data = await res.json();
+    const data = await authRes.json();
     if (data.authenticated) {
       S.sessionId = sessionId;
       S.swiggyConnected = true;
@@ -2410,9 +2410,9 @@ async function handleSwiggyAuth() {
     return;
   }
   try {
-    const res = await fetch('https://soiree-production.up.railway.app/api/v1/auth/start');
-    const data = await res.json();
-    window.location.href = data.authorize_url;
+    const authStartRes = await fetch('https://soiree-production.up.railway.app/api/v1/auth/start');
+    const authStartData = await authStartRes.json();
+    window.location.href = authStartData.authorize_url;
   } catch(e) {
     alert('Could not start Swiggy login. Please try again.');
   }
