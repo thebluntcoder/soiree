@@ -1439,6 +1439,10 @@ input[type=range]::-webkit-slider-thumb:hover {
     <span class="logo-wordmark">SOIRÉE</span>
   </div>
   <div class="header-right">
+    <div id="swiggyAuthBtn" onclick="handleSwiggyAuth()" style="display:flex;align-items:center;gap:7px;padding:6px 16px;border:1px solid var(--border2);border-radius:20px;font-size:11px;letter-spacing:1px;color:var(--text2);cursor:pointer;transition:all 0.2s;margin-right:8px;font-family:'DM Sans',sans-serif;">
+        <span id="swiggyAuthDot" style="width:6px;height:6px;border-radius:50%;background:var(--text3);transition:all 0.3s"></span>
+        <span id="swiggyAuthLabel">Connect Swiggy</span>
+    </div>
     <div class="mcp-pills">
       <span class="mcp-pill pill-food" data-tip="Food delivery API">Food</span>
       <span class="mcp-pill pill-instamart" data-tip="Grocery delivery API">Instamart</span>
@@ -1645,6 +1649,8 @@ const S = {
   location: '',
   lat: null,
   lng: null,
+  sessionId: localStorage.getItem('soiree_session_id') || null,
+  swiggyConnected: false,
   hour: 20,
   budget: 3000,
   guestCount: 2,
@@ -1662,6 +1668,7 @@ const S = {
 window.addEventListener('load', () => {
   setTimeout(() => {
     document.getElementById('loadScreen').classList.add('hidden');
+    checkSwiggyAuth();
   }, 2200);
 });
 
@@ -2158,9 +2165,12 @@ async function generate() {
   S.lastReq = req;
 
   try {
-    const res = await fetch('https://soiree-production.up.railway.app/api/v1/plans/generate', {
+    const headers = { 'Content-Type': 'application/json' };
+    if (S.sessionId) headers['X-Session-ID'] = S.sessionId;
+
+    const response = await fetch('https://soiree-production.up.railway.app/api/v1/plans/generate', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(req),
     });
 
@@ -2357,6 +2367,55 @@ function approveOrder() {
     return;
   }
   alert(`Phase 2 — will place orders for: ${selected.join(', ')}`);
+}
+
+async function checkSwiggyAuth() {
+  const sessionId = localStorage.getItem('soiree_session_id');
+  if (!sessionId) return;
+  try {
+    const res = await fetch(
+      `https://soiree-production.up.railway.app/api/v1/auth/status?session_id=${sessionId}`
+    );
+    const data = await res.json();
+    if (data.authenticated) {
+      S.sessionId = sessionId;
+      S.swiggyConnected = true;
+      document.getElementById('swiggyAuthDot').style.background = 'var(--green2)';
+      document.getElementById('swiggyAuthDot').style.boxShadow = '0 0 6px var(--green2)';
+      document.getElementById('swiggyAuthLabel').textContent = 'Swiggy Connected';
+    } else {
+      localStorage.removeItem('soiree_session_id');
+      S.sessionId = null;
+      S.swiggyConnected = false;
+    }
+  } catch(e) {}
+}
+
+async function handleSwiggyAuth() {
+  if (S.swiggyConnected) {
+    if (!confirm('Disconnect your Swiggy account?')) return;
+    try {
+      await fetch(
+        `https://soiree-production.up.railway.app/api/v1/auth/logout?session_id=${S.sessionId}`,
+        { method: 'POST' }
+      );
+    } catch(e) {}
+    localStorage.removeItem('soiree_session_id');
+    localStorage.removeItem('soiree_expires_at');
+    S.sessionId = null;
+    S.swiggyConnected = false;
+    document.getElementById('swiggyAuthDot').style.background = 'var(--text3)';
+    document.getElementById('swiggyAuthDot').style.boxShadow = 'none';
+    document.getElementById('swiggyAuthLabel').textContent = 'Connect Swiggy';
+    return;
+  }
+  try {
+    const res = await fetch('https://soiree-production.up.railway.app/api/v1/auth/start');
+    const data = await res.json();
+    window.location.href = data.authorize_url;
+  } catch(e) {
+    alert('Could not start Swiggy login. Please try again.');
+  }
 }
 </script>
 </body>
