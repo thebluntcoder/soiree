@@ -13,15 +13,18 @@ Result:
   GET  /api/v1/plans/{plan_id}
   POST /api/v1/plans/{plan_id}/order
   ... (events, users, offers, orders to be added as we build them)
+
+api/v1/router.py — Mounts all v1 endpoint routers.
 """
 
 from fastapi import APIRouter
-from app.api.v1.endpoints import plans, events, users, offers, orders
+from app.api.v1.endpoints import plans, events, users, offers, orders, auth
 
 api_router = APIRouter()
 
-api_router.include_router(plans.router, prefix="/plans", tags=["plans"])
+api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(events.router, prefix="/events", tags=["events"])
+api_router.include_router(plans.router, prefix="/plans", tags=["plans"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(offers.router, prefix="/offers", tags=["offers"])
 api_router.include_router(orders.router, prefix="/orders", tags=["orders"])

@@ -31,7 +31,8 @@ ENDPOINTS:
   POST /plans/{plan_id}/order  → place orders (Phase 2)
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Header
+from typing import Optional
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
@@ -60,6 +61,7 @@ router = APIRouter()
 async def create_plan_endpoint(
     request: PlanRequest,
     session: AsyncSession = Depends(get_session),
+    x_session_id: Optional[str] = Header(None, alias="X-Session-ID"),
 ):
     """
     Generate a plan, stream it to the frontend, and persist it to DB.
@@ -71,6 +73,23 @@ async def create_plan_endpoint(
     The event_id in PlanRequest is optional for now — if not provided,
     the plan is saved without an event link (demo mode).
     """
+    
+    # Resolve access token if session provided
+    # When session_id is present → real Swiggy MCP calls
+    # When absent → mock data (demo mode)
+    access_token = None
+    if x_session_id:
+        from app.api.v1.endpoints.auth import get_access_token
+        access_token = await get_access_token(x_session_id)
+        if access_token is None:
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "code": "SWIGGY_TOKEN_EXPIRED",
+                    "message": "Please reconnect your Swiggy account",
+                }
+            )
+
     # Ensure demo user and a demo event exist before creating plan
     from app.api.v1.endpoints.events import _ensure_demo_user
     from app.models.event import Event, EventType, VenueMode, EventStatus
@@ -109,7 +128,9 @@ async def create_plan_endpoint(
 
         accumulated = ""
         try:
-            async for chunk in generate_plan(request.model_dump()):
+            event_data = request.model_dump()
+            event_data["access_token"] = access_token  # None = mock, token = live
+            async for chunk in generate_plan(event_data):
                 accumulated += chunk
                 yield chunk
 
