@@ -36,50 +36,67 @@
 
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: #faf7f2;
-    --surface: #f2ede4;
-    --surface2: #e8e0d0;
-    --surface3: #ddd4c0;
-    --border: rgba(140,100,40,0.1);
-    --border2: rgba(140,100,40,0.2);
-    --border3: rgba(140,100,40,0.35);
-    --gold: #8a6520;
-    --gold2: #a07828;
-    --gold3: #b88c30;
-    --gold-dim: rgba(140,101,32,0.2);
-    --gold-glow: rgba(140,101,32,0.08);
-    --text: #1a1208;
-    --text2: rgba(26,18,8,0.62);
-    --text3: rgba(26,18,8,0.38);
-    --text4: rgba(26,18,8,0.18);
-    --coral: #b84030;
-    --coral2: #cc5040;
-    --coral-dim: rgba(184,64,48,0.1);
-    --green: #2d6040;
-    --green2: #3d7850;
-    --green-dim: rgba(45,96,64,0.1);
-    --amber: #9a6018;
-    --amber-dim: rgba(154,96,24,0.1);
+    --bg: #f5f0e8;
+    --surface: #ede6d8;
+    --surface2: #e3dace;
+    --surface3: #d8cfc0;
+    --border: rgba(100,75,30,0.12);
+    --border2: rgba(100,75,30,0.22);
+    --border3: rgba(100,75,30,0.38);
+    --gold: #7a5515;
+    --gold2: #8f6418;
+    --gold3: #a0721c;
+    --gold-dim: rgba(122,85,21,0.22);
+    --gold-glow: rgba(122,85,21,0.08);
+    --text: #1c1408;
+    --text2: rgba(28,20,8,0.70);
+    --text3: rgba(28,20,8,0.48);
+    --text4: rgba(28,20,8,0.22);
+    --coral: #a83020;
+    --coral2: #bf4030;
+    --coral-dim: rgba(168,48,32,0.1);
+    --green: #1e5530;
+    --green2: #2a6e40;
+    --green-dim: rgba(30,85,48,0.1);
+    --amber: #845010;
+    --amber-dim: rgba(132,80,16,0.1);
   }
 
-  body::after { opacity: 0.15; }
+  body::after { opacity: 0.1; }
+
+  .ambient-orb { opacity: 0 !important; }
+
+  header { background: rgba(245,240,232,0.9); }
+
+  .sidebar { background: rgba(245,240,232,0.7); }
 
   .load-logo {
-    background: linear-gradient(135deg, var(--gold), var(--gold3));
+    background: linear-gradient(135deg, #7a5515, #a0721c);
     -webkit-background-clip: text;
     background-clip: text;
   }
 
-  header {
-    background: rgba(250,247,242,0.85);
-    border-bottom-color: var(--border2);
-  }
-
-  .sidebar { background: rgba(250,247,242,0.6); }
-
   input[type=range] {
-    background: linear-gradient(to right, var(--gold) 0%, var(--gold) var(--pct, 50%), rgba(140,100,40,0.2) var(--pct, 50%));
+    background: linear-gradient(to right, var(--gold) 0%, var(--gold) var(--pct, 50%), rgba(100,75,30,0.2) var(--pct, 50%));
   }
+
+  .occasion-chip { background: var(--surface); }
+  .occasion-chip.active { background: var(--surface2); }
+  .venue-btn { background: var(--surface); }
+  .inp { background: #fff; border-color: var(--border2); }
+  .inp:focus { background: #fff; }
+  .notes-ta { background: #fff; border-color: var(--border2); }
+  .gtab { background: transparent; }
+  .dpill { background: transparent; }
+  .svc-card { background: var(--surface); }
+  .card-head { background: var(--surface2); }
+  .cost-col { background: var(--surface); }
+  .cost-total-row { background: var(--surface2); }
+  .health-note { background: rgba(30,85,48,0.06); }
+  .chat-bub.ai { background: var(--surface); }
+  .gen-rings .gen-center { color: var(--gold); }
+  .plan-cta { box-shadow: 0 4px 24px rgba(122,85,21,0.25); }
+  .empty-glyph-wrap { background: var(--gold-glow); border-color: var(--gold-dim); }
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1549,9 +1566,12 @@ input[type=range]::-webkit-slider-thumb:hover {
 
     <div class="field-group">
       <div class="field-label">Location</div>
-      <div class="input-wrap">
+      <div class="input-wrap" style="position:relative">
         <input type="text" class="inp" id="loc" placeholder="City or area, e.g. Lucknow" style="padding-right:42px">
-        <span class="inp-icon" onclick="gps()" data-tip="Detect my location">📍</span>
+        <span onclick="gps()" data-tip="Detect my location"
+          style="position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:15px;cursor:pointer;opacity:0.5;transition:all 0.2s;z-index:2;line-height:1"
+          onmouseover="this.style.opacity='1'"
+          onmouseout="this.style.opacity='0.5'">📍</span>
       </div>
     </div>
 
