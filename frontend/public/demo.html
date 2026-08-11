@@ -2437,22 +2437,22 @@ function backToForm() {
   S.selectedFood = null;
 }
 
-  const req = {
-    event_type: S.occasion,
-    venue_mode: S.venue,
-    location: S.location,
-    lat: S.lat || null,
-    lng: S.lng || null,
-    start_hour: S.hour,
-    budget: S.budget,
-    guest_count: S.guestMode === 'named' ? Math.max(S.guests.length, 1) : S.guestCount,
-    guests: S.guestMode === 'named' ? S.guests : [],
-    dietary_tags: S.dietary,
-    health_focus: S.health,
-    notes: S.notes || null,
-  };
+async function runGeneration(req) {
+  const btn = document.getElementById('planCta');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="cta-spinner"></span> ORCHESTRATING...';
+  S.streaming = true;
 
-  S.lastReq = req;
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('planContent').style.display = 'none';
+  document.getElementById('planContent').innerHTML = '';
+  document.getElementById('pickerState').style.display = 'none';
+
+  const gen = document.getElementById('genState');
+  gen.style.display = 'flex';
+
+  startBar();
+  startSteps();
 
   try {
     const headers = { 'Content-Type': 'application/json' };
@@ -2498,9 +2498,7 @@ function backToForm() {
     stopSteps();
     finishBar();
     document.getElementById('genState').style.display = 'none';
-    document.getElementById('emptyState').style.display = 'flex';
-    document.getElementById('emptyState').querySelector('.empty-heading').textContent = 'Something went wrong';
-    document.getElementById('emptyState').querySelector('.empty-sub').textContent = e.message || 'Please try again';
+    showError(e.message || 'Please try again');
   } finally {
     btn.disabled = false;
     btn.innerHTML = '✦ &nbsp; PLAN MY EVENING';
@@ -2508,14 +2506,24 @@ function backToForm() {
   }
 }
 
+function showError(message) {
+  document.getElementById('genState').style.display = 'none';
+  document.getElementById('emptyState').style.display = 'flex';
+  document.getElementById('emptyState').querySelector('.empty-heading').innerHTML = 'Something went wrong';
+  document.getElementById('emptyState').querySelector('.empty-sub').textContent = message || 'Please try again';
+}
+
 function resetPlan() {
   document.getElementById('planContent').style.display = 'none';
   document.getElementById('planContent').innerHTML = '';
+  document.getElementById('pickerState').style.display = 'none';
   const es = document.getElementById('emptyState');
   es.style.display = 'flex';
   es.querySelector('.empty-heading').innerHTML = 'Your evening,<br>curated.';
   es.querySelector('.empty-sub').textContent = 'Configure your event and let Soirée orchestrate every detail — from rooftop reservations to 10-minute grocery deliveries.';
   S.chatMsgs = [];
+  S.selectedDineout = null;
+  S.selectedFood = null;
 }
 
 // ── CHAT ───────────────────────────────────────────────────────────
