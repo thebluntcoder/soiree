@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     # App
     APP_ENV: str = "development"
     SECRET_KEY: str = "change-me-in-production"
-    ALLOWED_ORIGINS: Union[List[str], str] = ["http://localhost:3000"]
+    ALLOWED_ORIGINS: Union[List[str], str] = ["https://soiree-blue.vercel.app","http://localhost:3000"]
 
     @field_validator("ALLOWED_ORIGINS", mode="before")
     @classmethod
