@@ -241,3 +241,153 @@ Now generate the complete event plan. You MUST include ALL of these markers exac
 [COST]
 
 Each marker must appear on its own line. Use only restaurant names, dish names, prices, and slot times from the MCP data above."""
+
+
+def build_user_prompt_v2(
+    event_data,
+    mcp_context,
+    offers,
+    selected_dineout=None,
+    selected_food=None,
+):
+    """
+    Enhanced user prompt with selected restaurant + alcohol preference.
+
+    When user has selected specific restaurants (Step 2 picker):
+    - Claude writes plan AROUND chosen restaurants
+    - No evaluating options — decision already made
+    - Focus on: specific dishes, offers, slots, experience
+
+    When no selection (legacy mode): Claude picks best from MCP data.
+    """
+    import json
+    from typing import Any
+
+    guests_raw = event_data.get("guests", [])
+    if guests_raw:
+        guest_names = [g.get("name", "Guest") for g in guests_raw if g.get("name")]
+        guest_summary = f"{len(guests_raw)} named guests: {', '.join(guest_names)}"
+        all_dietary = set(event_data.get("dietary_tags", []))
+        for g in guests_raw:
+            all_dietary.update(g.get("dietary_tags", []))
+        dietary_summary = ", ".join(all_dietary) if all_dietary else "None specified"
+    else:
+        guest_summary = f"{event_data.get('guest_count', 2)} people"
+        dietary_tags = event_data.get("dietary_tags", [])
+        dietary_summary = ", ".join(dietary_tags) if dietary_tags else "None specified"
+
+    hour = event_data.get("start_hour", 20)
+    hour_floor = int(hour)
+    mins = "30" if hour % 1 == 0.5 else "00"
+    period = "AM" if hour_floor < 12 else "PM"
+    display_hour = hour_floor if hour_floor <= 12 else hour_floor - 12
+    start_time = f"{display_hour}:{mins} {period}"
+
+    health_focus = event_data.get("health_focus", 50)
+    health_label = (
+        "health-conscious" if health_focus >= 70
+        else "indulgent" if health_focus <= 30
+        else "balanced"
+    )
+
+    alcohol = event_data.get("alcohol_preference", "any")
+    alcohol_label = {
+        "yes": "Alcohol welcome — suggest cocktails/wine/beer where appropriate",
+        "no": "No alcohol — mocktails/juices/soft drinks ONLY",
+        "any": "No alcohol preference",
+    }.get(alcohol, "No preference")
+
+    venue_labels = {
+        "out": "Dine Out — restaurant reservation only, no delivery",
+        "home": "Stay In — food delivery for full meal + Instamart for supplies",
+        "hybrid": (
+            "Hybrid — restaurant for main meal + Swiggy Food for specific celebration "
+            "items only (e.g. birthday cake from bakery, NOT a full meal) + "
+            "Instamart for ambience (candles, flowers, soft drinks). "
+            "NEVER suggest food delivery for a meal in hybrid mode."
+        ),
+    }
+    venue_label = venue_labels.get(event_data.get("venue_mode", "hybrid"), "Hybrid")
+
+    selected_context = ""
+    if selected_dineout:
+        slots = [
+            s.get("time", s) if isinstance(s, dict) else s
+            for s in selected_dineout.get("available_slots", [])
+        ]
+        selected_context += f"""
+USER HAS CHOSEN THIS DINEOUT RESTAURANT — write entire [DINEOUT] section around it:
+  Name:     {selected_dineout.get("name")}
+  Cuisine:  {selected_dineout.get("cuisine")}
+  Rating:   {selected_dineout.get("rating")}★
+  Cost/2:   ₹{selected_dineout.get("cost_for_two")}
+  Distance: {selected_dineout.get("distance_km")} km
+  Known for: {", ".join(selected_dineout.get("known_for", []))}
+  Slots:    {", ".join(slots)}
+  Offers:   {selected_dineout.get("offers", [])}
+Do NOT suggest alternatives. Plan around this restaurant only.
+"""
+
+    if selected_food:
+        selected_context += f"""
+USER HAS CHOSEN THIS FOOD RESTAURANT — write entire [FOOD] section around it:
+  Name:     {selected_food.get("name")}
+  Cuisine:  {selected_food.get("cuisine")}
+  Rating:   {selected_food.get("rating")}★
+  Dishes:   {selected_food.get("top_dishes", [])}
+  Offers:   {selected_food.get("offers", [])}
+Do NOT suggest alternatives.
+"""
+
+    food_json = json.dumps(mcp_context.get("food"), indent=2, ensure_ascii=False) if mcp_context.get("food") else "Not applicable"
+    instamart_json = json.dumps(mcp_context.get("instamart"), indent=2, ensure_ascii=False) if mcp_context.get("instamart") else "Not applicable"
+    dineout_json = json.dumps(mcp_context.get("dineout"), indent=2, ensure_ascii=False) if mcp_context.get("dineout") else "Not applicable"
+    offers_json = json.dumps(offers, indent=2, ensure_ascii=False) if offers else "[]"
+    budget_split = mcp_context.get("budget_split", {})
+
+    return f"""Plan this event using ONLY the Swiggy MCP data provided below.
+
+═══════════════════════════════
+EVENT DETAILS
+═══════════════════════════════
+Occasion:     {event_data.get("event_type", "").replace("_", " ").title()}
+Venue mode:   {venue_label}
+Location:     {event_data.get("location", "")}
+Start time:   {start_time}
+Guests:       {guest_summary}
+Dietary:      {dietary_summary}
+Health:       {health_label} ({health_focus}/100)
+Alcohol:      {alcohol_label}
+Budget:       ₹{event_data.get("budget", 0):,}
+Split:        Dineout ₹{budget_split.get("dineout", 0):,} | Food ₹{budget_split.get("food", 0):,} | Instamart ₹{budget_split.get("instamart", 0):,}
+Notes:        {event_data.get("notes") or "None"}
+{selected_context}
+═══════════════════════════════
+SWIGGY FOOD MCP DATA
+═══════════════════════════════
+{food_json}
+
+═══════════════════════════════
+SWIGGY INSTAMART MCP DATA
+═══════════════════════════════
+{instamart_json}
+
+═══════════════════════════════
+SWIGGY DINEOUT MCP DATA
+═══════════════════════════════
+{dineout_json}
+
+═══════════════════════════════
+ACTIVE OFFERS
+═══════════════════════════════
+{offers_json}
+
+CRITICAL RULES:
+1. HYBRID MODE: [FOOD] = celebration items ONLY (birthday cake from bakery, dessert). NOT a full meal. Label it "Birthday Cake Order" not "Food Delivery". User is dining at restaurant — they don't need a second meal delivered.
+2. INSTAMART ≠ CAKES. Instamart has candles, flowers, soft drinks, chips, decorations. For cake → Swiggy Food (bakeries).
+3. ALCOHOL: {alcohol_label}. Apply this to ALL recommendations — restaurant type, drink suggestions, Instamart items.
+4. Use ONLY names, prices, slots from MCP data. Never invent restaurants.
+5. If a service is "Not applicable" — OMIT that section entirely. Never write placeholder text.
+6. Offer search: for the selected/recommended restaurant, surface ALL applicable offers — pre-booking discounts, app offers, bank card offers, combo deals. Show maximum savings.
+
+Generate the complete plan with all applicable section markers."""

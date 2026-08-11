@@ -141,11 +141,26 @@ async def generate_plan(event_data: dict[str, Any]) -> AsyncIterator[str]:
 
         # ── Stage 2: Build prompts with full context ──────────────────────────
         system_prompt = build_system_prompt()
-        user_prompt = build_user_prompt(
-            event_data=event_data,
-            mcp_context=mcp_context,
-            offers=offers,
-        )
+
+        # Use v2 prompt if selected restaurants provided
+        selected_dineout = event_data.get("selected_dineout")
+        selected_food = event_data.get("selected_food")
+
+        if selected_dineout or selected_food or event_data.get("alcohol_preference"):
+            from app.services.ai.prompts import build_user_prompt_v2
+            user_prompt = build_user_prompt_v2(
+                event_data=event_data,
+                mcp_context=mcp_context,
+                offers=offers,
+                selected_dineout=selected_dineout,
+                selected_food=selected_food,
+            )
+        else:
+            user_prompt = build_user_prompt(
+                event_data=event_data,
+                mcp_context=mcp_context,
+                offers=offers,
+            )
 
         # ── Stage 3: Collect full Claude response ─────────────────────────────
         # We use create() (not stream()) here — see module docstring for why.

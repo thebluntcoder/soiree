@@ -1,32 +1,17 @@
 """
 schemas/plan.py — Pydantic request/response schemas for plan endpoints.
 
-CONCEPT: Schemas vs Models — what's the difference?
------------------------------------------------------
-Models (models/event.py etc.) define the DATABASE shape — what gets
-stored in Postgres. They map 1:1 to tables and columns.
+CONCEPT: Schemas vs Models
+----------------------------
+Models define DB shape. Schemas define API shape.
+Kept separate because API and DB concerns differ — validation rules,
+exposed fields, and computed properties all differ between layers.
 
-Schemas (this file) define the API shape — what the client sends
-and what we send back. They're used for:
-  - Validating incoming request bodies
-  - Shaping outgoing JSON responses
-  - Auto-generating OpenAPI docs (the /docs page)
-
-Often they overlap but they're kept separate because:
-  - DB models have fields the API should never expose (internal IDs, timestamps)
-  - API schemas have computed fields that don't exist in the DB
-  - You might want different validation rules at the API vs DB layer
-
-CONCEPT: Pydantic validation
-------------------------------
-When FastAPI receives a POST body, it passes it through the Pydantic
-schema automatically. If any field fails validation (wrong type, out
-of range, missing required field), FastAPI returns a 422 error with
-a detailed explanation — before your code even runs.
-
-Field(ge=1) means "greater than or equal to 1".
-Field(le=100) means "less than or equal to 100".
-These are enforced automatically.
+Updated to support:
+  - alcohol_preference: drives restaurant and Instamart selection
+  - selected_dineout_id: user-chosen restaurant from /plans/search
+  - selected_food_restaurant_id: user-chosen food restaurant
+  - SearchRequest: lightweight pre-generation restaurant discovery
 """
 
 from pydantic import BaseModel, Field
@@ -35,8 +20,6 @@ from enum import Enum
 
 
 class EventType(str, Enum):
-    """Occasion types — drives AI tone and MCP server selection."""
-
     date = "date"
     friends = "friends"
     birthday = "birthday"
@@ -49,8 +32,8 @@ class VenueMode(str, Enum):
     """
     Controls which Swiggy MCP servers are called.
       out    → Dineout only
-      home   → Food + Instamart
-      hybrid → all three
+      home   → Food + Instamart (full meal delivered)
+      hybrid → Dineout + Food (celebration items only e.g. cake) + Instamart (ambience)
     """
 
     out = "out"
@@ -58,14 +41,18 @@ class VenueMode(str, Enum):
     hybrid = "hybrid"
 
 
+class AlcoholPreference(str, Enum):
+    """
+    User's alcohol preference.
+    Drives restaurant filtering (bar vs family) and Instamart (beer vs soft drinks).
+    """
+
+    yes = "yes"  # alcohol welcome — rooftop bars, wine lists
+    no = "no"  # no alcohol — family restaurants, mocktails
+    any = "any"  # no preference
+
+
 class Guest(BaseModel):
-    """
-    A single named guest with optional per-person dietary tags.
-
-    Both fields are optional — if name is None, the guest is anonymous.
-    If dietary_tags is empty, group-level tags from PlanRequest apply.
-    """
-
     name: Optional[str] = Field(default=None)
     dietary_tags: list[str] = Field(default=[])
     pref: str = Field(default="any", description="any/veg/non-veg")
@@ -74,72 +61,68 @@ class Guest(BaseModel):
     )
 
 
-class PlanRequest(BaseModel):
+class SearchRequest(BaseModel):
     """
-    Incoming request body for POST /api/v1/plans/generate.
+    Lightweight pre-generation request — Step 1.5 in the flow.
+    Calls MCP servers and returns restaurant options for user to pick.
+    No Claude call — just raw restaurant data.
 
-    This is the single source of truth for what the frontend
-    sends when a user clicks 'Plan My Event'.
+    Flow:
+      Step 1: User fills form
+      Step 1.5: POST /plans/search → returns restaurant options
+      Step 2: User picks restaurants
+      Step 3: POST /plans/generate with selected IDs → full plan
     """
 
     event_type: EventType
     venue_mode: VenueMode
+    location: str = Field(..., min_length=2)
+    start_hour: float = Field(default=20, ge=10, le=23)
+    budget: int = Field(..., ge=100, le=50000)
+    guest_count: int = Field(..., ge=1, le=100)
+    guests: list[Guest] = Field(default=[])
+    dietary_tags: list[str] = Field(default=[])
+    health_focus: int = Field(default=50, ge=0, le=100)
+    alcohol_preference: AlcoholPreference = Field(
+        default=AlcoholPreference.any,
+        description="Drives restaurant type and drink suggestions",
+    )
+    notes: Optional[str] = Field(default=None, max_length=500)
+    lat: Optional[float] = Field(default=None)
+    lng: Optional[float] = Field(default=None)
 
-    location: str = Field(
-        ...,
-        min_length=2,
-        description="City name or full address. E.g. 'Koramangala, Bangalore' or 'Lucknow'",
-    )
-    start_hour: float = Field(
-        default=20,
-        ge=10,
-        le=23,
-        description="Event start time in 24h format. 20 = 8 PM, 20.5 = 8:30 PM.",
-    )
-    budget: int = Field(
-        ...,
-        ge=500,
-        le=50000,
-        description="Total budget in INR across all Swiggy services.",
-    )
-    guest_count: int = Field(
-        ...,
-        ge=1,
-        le=100,
-        description="Total number of people including the host.",
-    )
-    guests: list[Guest] = Field(
-        default=[],
-        description="Optional named guest list with per-person dietary tags. "
-        "If empty, guest_count is used as headcount with group dietary_tags.",
-    )
-    dietary_tags: list[str] = Field(
-        default=[],
-        description="Group-level dietary restrictions applied to all guests. "
-        "E.g. ['Veg', 'Jain', 'No-Nuts']. "
-        "Per-guest tags in `guests` are merged with these.",
-    )
-    health_focus: int = Field(
-        default=50,
-        ge=0,
-        le=100,
-        description="Wellness slider. 0 = full indulgence, 100 = health-first. "
-        "Shapes AI dish filtering and recommendations.",
-    )
-    notes: Optional[str] = Field(
-        default=None,
-        max_length=500,
-        description="Free-text context for the AI. "
-        "E.g. 'It is our anniversary' or 'One guest is allergic to nuts'.",
-    )
 
-    # Device GPS coordinates — optional, improves location accuracy
-    # Used by Dineout (lat/lng) — Food/Instamart still use saved addressId
-    lat: Optional[float] = Field(
-        default=None,
-        description="Device GPS latitude"
+class PlanRequest(BaseModel):
+    """
+    Full plan generation request — Step 3 in the flow.
+    Includes user-selected restaurant IDs from Step 2.
+    Claude generates a focused plan around the chosen restaurants.
+    """
+
+    event_type: EventType
+    venue_mode: VenueMode
+    location: str = Field(..., min_length=2)
+    start_hour: float = Field(default=20, ge=10, le=23)
+    budget: int = Field(..., ge=100, le=50000)
+    guest_count: int = Field(..., ge=1, le=100)
+    guests: list[Guest] = Field(default=[])
+    dietary_tags: list[str] = Field(default=[])
+    health_focus: int = Field(default=50, ge=0, le=100)
+    alcohol_preference: AlcoholPreference = Field(
+        default=AlcoholPreference.any,
+        description="Drives restaurant type, drink suggestions, Instamart items",
     )
-    lng: Optional[float] = Field(
+    notes: Optional[str] = Field(default=None, max_length=500)
+    lat: Optional[float] = Field(default=None)
+    lng: Optional[float] = Field(default=None)
+
+    # User-selected restaurants from Step 2 picker
+    # If None, Claude picks from all available options
+    selected_dineout_id: Optional[str] = Field(
         default=None,
-        description="Device GPS longitude"
+        description="Restaurant ID chosen by user from Dineout search results",
+    )
+    selected_food_restaurant_id: Optional[str] = Field(
+        default=None,
+        description="Restaurant ID chosen by user from Food search results",
     )
