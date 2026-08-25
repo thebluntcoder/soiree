@@ -84,21 +84,31 @@ class MCPOrchestrator:
             self.dineout.get_saved_locations(access_token=access_token),
             return_exceptions=True,
         )
+        import logging
+
+        logging.warning(f"locations_result raw: {str(locations_result)[:800]}")
 
         address_id = DEFAULT_MOCK_ADDRESS_ID
         if not isinstance(addresses_result, Exception):
             address_id = _parse_address_id(addresses_result, preferred_city="Lucknow")
 
-        location = DEFAULT_MOCK_LOCATION
+        # Dineout also uses address ID (same as Food/Instamart)
+        # get_saved_locations returns same format as get_addresses
+        dineout_address_id = DEFAULT_MOCK_ADDRESS_ID
         if not isinstance(locations_result, Exception):
-            loc = _parse_location(locations_result)
-            if loc:
-                location = loc
+            dineout_address_id = _parse_address_id(
+                locations_result, preferred_city="Lucknow"
+            )
 
-        import logging
-
-        logging.info(f"Resolved addressId={address_id}, location={location}")
-        return address_id, location
+        logging.info(
+            f"Resolved food/instamart addressId={address_id}, dineout addressId={dineout_address_id}"
+        )
+        # Return dineout_address_id as the "location" dict for compatibility
+        return address_id, {
+            "address_id": dineout_address_id,
+            "lat": DEFAULT_MOCK_LOCATION["lat"],
+            "lng": DEFAULT_MOCK_LOCATION["lng"],
+        }
 
     async def gather_context(
         self,
@@ -141,8 +151,9 @@ class MCPOrchestrator:
         )
 
         # Use device GPS if provided (more accurate than saved location)
-        dineout_lat = lat or saved_location["lat"]
-        dineout_lng = lng or saved_location["lng"]
+        dineout_lat = lat or saved_location.get("lat", DEFAULT_MOCK_LOCATION["lat"])
+        dineout_lng = lng or saved_location.get("lng", DEFAULT_MOCK_LOCATION["lng"])
+        dineout_address_id = saved_location.get("address_id", DEFAULT_MOCK_ADDRESS_ID)
 
         tasks: list[tuple[str, Any]] = []
 
@@ -189,17 +200,22 @@ class MCPOrchestrator:
         # ── Dineout reservations ──────────────────────────────────────
         # out + hybrid: restaurant search with alcohol preference
         if venue_mode in ("out", "hybrid"):
-            dineout_query = _dineout_query(event_type, dietary_tags, alcohol_preference)
+            dineout_query = _dineout_query(
+                event_type, dietary_tags, alcohol_preference, notes
+            )
             tasks.append(
                 (
                     "dineout",
                     self.dineout.search_restaurants(
                         lat=dineout_lat,
                         lng=dineout_lng,
+                        address_id=dineout_address_id if access_token else None,
                         query=dineout_query,
                         guest_count=guest_count,
                         dietary_filters=dietary_tags,
-                        event_type=event_type,
+                        event_type=str(event_type).split(".")[-1]
+                        if hasattr(event_type, "value")
+                        else event_type,
                         budget_per_head=budget_split["dineout"] // max(guest_count, 1),
                         start_hour=int(start_hour),
                         access_token=access_token,
@@ -391,34 +407,61 @@ def _dineout_query(
     event_type: str,
     dietary_tags: list[str],
     alcohol_preference: str = "any",
+    notes: str | None = None,
 ) -> str:
     """
-    Build Dineout search query with alcohol preference.
+    Build Dineout search query.
 
-    alcohol yes → rooftop bars, restaurants with bar, wine list
-    alcohol no  → family restaurants, pure veg, no bar
+    Priority:
+    1. Explicit cuisine from user notes
+    2. Veg/Jain dietary restriction
+    3. Alcohol preference
+    4. Empty string — return all nearby, Claude picks best for occasion
     """
-    is_veg = "Veg" in dietary_tags or "Jain" in dietary_tags
+    # Priority 1 — explicit cuisine from notes
+    if notes:
+        notes_lower = notes.lower()
+        cuisines = [
+            "chinese",
+            "italian",
+            "continental",
+            "south indian",
+            "north indian",
+            "mughlai",
+            "thai",
+            "japanese",
+            "mexican",
+            "mediterranean",
+            "french",
+            "seafood",
+            "punjabi",
+            "bengali",
+            "gujarati",
+            "rajasthani",
+            "kerala",
+            "hyderabadi",
+            "awadhi",
+            "biryani",
+            "pizza",
+            "sushi",
+            "kebab",
+        ]
+        for cuisine in cuisines:
+            if cuisine in notes_lower:
+                return cuisine
 
-    base_queries = {
-        "date": "romantic rooftop fine dining",
-        "birthday": "celebration party hall",
-        "corporate": "business dining professional",
-        "house_party": "",
-        "family": "family restaurant spacious",
-        "friends": "casual dining popular",
-    }
-    base = base_queries.get(event_type, "")
+    # Priority 2 — dietary restriction
+    if "Veg" in dietary_tags or "Jain" in dietary_tags:
+        return "vegetarian"
 
-    if is_veg:
-        base = "vegetarian " + base
-
+    # Priority 3 — alcohol preference
     if alcohol_preference == "yes":
-        base += " bar cocktails"
+        return "bar"
     elif alcohol_preference == "no":
-        base += " family no bar"
+        return "family"
 
-    return base.strip()
+    # Priority 4 — empty, let Dineout return all nearby
+    return "restaurant"
 
 
 def _parse_address_id(response: dict, preferred_city: str = "") -> str:

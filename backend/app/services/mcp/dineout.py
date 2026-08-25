@@ -117,6 +117,12 @@ class DineoutMCPClient:
             )
             if response.status_code == 401:
                 raise PermissionError("SWIGGY_TOKEN_EXPIRED")
+            import logging
+
+            logging.warning(f"Dineout MCP {tool_name} REQUEST params={params}")
+            logging.warning(
+                f"Dineout MCP {tool_name} status={response.status_code} body={response.text[:800]}"
+            )
             response.raise_for_status()
             result = response.json()
             if "error" in result:
@@ -173,6 +179,7 @@ class DineoutMCPClient:
         budget_per_head: int = 1000,
         start_hour: int = 20,
         access_token: str | None = None,
+        address_id: str | None = None,
     ) -> dict[str, Any]:
         """
         Search for dine-in restaurants by lat/lng (NOT addressId).
@@ -194,18 +201,24 @@ class DineoutMCPClient:
               - offers: active Dineout offers (pre-payment discounts etc.)
               - availability: only present "AVAILABLE" restaurants
         """
+        params = {
+            "query": query,
+            "guestCount": guest_count,
+            # "dietary_filters": dietary_filters or [],
+            # "event_type": event_type,
+            # "budget_per_head": budget_per_head,
+            # "start_hour": start_hour,
+        }
+        # Use address_id if available (real API), otherwise lat/lng (mock)
+        if address_id:
+            params["addressId"] = address_id
+        else:
+            params["lat"] = lat
+            params["lng"] = lng
+
         return await self._call_mcp(
             "search_restaurants_dineout",
-            {
-                "lat": lat,
-                "lng": lng,
-                "query": query,
-                "guestCount": guest_count,
-                "dietary_filters": dietary_filters or [],
-                "event_type": event_type,
-                "budget_per_head": budget_per_head,
-                "start_hour": start_hour,
-            },
+            params,
             access_token=access_token,
         )
 
