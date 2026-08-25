@@ -37,8 +37,12 @@ function CallbackHandler() {
 
   async function exchangeCode(code: string, state: string) {
     try {
+        const apiBase = typeof window !== 'undefined' && window.location.hostname === 'localhost'
+        ? 'http://localhost:8000'
+        : (process.env.NEXT_PUBLIC_API_URL || 'https://soiree-production.up.railway.app');
+
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/auth/callback`,
+        `${apiBase}/api/v1/auth/callback`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

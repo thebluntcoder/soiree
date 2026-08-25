@@ -1882,6 +1882,9 @@ input[type=range]::-webkit-slider-thumb:hover {
 
 <script>
 // ── STATE ─────────────────────────────────────────────────────────
+const API_BASE = window.location.hostname === 'localhost'
+  ? 'http://localhost:8000'
+  : 'https://soiree-production.up.railway.app';
 const S = {
   occasion: 'date',
   venue: 'hybrid',
@@ -2405,9 +2408,12 @@ async function generate() {
   S.lastReq = req;
 
   try {
-    const searchResponse = await fetch('https://soiree-production.up.railway.app/api/v1/search/', {
+    const searchHeaders = { 'Content-Type': 'application/json' };
+    if (S.sessionId) searchHeaders['X-Session-ID'] = S.sessionId;
+
+    const searchResponse = await fetch(`${API_BASE}/api/v1/search/`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: searchHeaders,
       body: JSON.stringify(req),
     });
 
@@ -2458,7 +2464,7 @@ async function runGeneration(req) {
     const headers = { 'Content-Type': 'application/json' };
     if (S.sessionId) headers['X-Session-ID'] = S.sessionId;
 
-    const response = await fetch('https://soiree-production.up.railway.app/api/v1/plans/generate', {
+    const response = await fetch(`${API_BASE}/api/v1/plans/generate`, {
       method: 'POST',
       headers,
       body: JSON.stringify(req),
@@ -2579,7 +2585,7 @@ async function sendChat() {
   document.getElementById('chatSend').disabled = true;
 
   try {
-  const chatResponse = await fetch('https://soiree-production.up.railway.app/api/v1/plans/chat', {
+  const chatResponse = await fetch(`${API_BASE}/api/v1/plans/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2808,7 +2814,7 @@ async function runGeneration(req) {
     const headers = { 'Content-Type': 'application/json' };
     if (S.sessionId) headers['X-Session-ID'] = S.sessionId;
 
-    const response = await fetch('https://soiree-production.up.railway.app/api/v1/plans/generate', {
+    const response = await fetch(`${API_BASE}/api/v1/plans/generate`, {
       method: 'POST',
       headers,
       body: JSON.stringify(req),
@@ -2861,7 +2867,7 @@ async function checkSwiggyAuth() {
   if (!sessionId) return;
   try {
     const authRes = await fetch(
-      `https://soiree-production.up.railway.app/api/v1/auth/status?session_id=${sessionId}`
+      `${API_BASE}/api/v1/auth/status?session_id=${sessionId}`
     );
     const data = await authRes.json();
     if (data.authenticated) {
@@ -2883,7 +2889,7 @@ async function handleSwiggyAuth() {
     if (!confirm('Disconnect your Swiggy account?')) return;
     try {
       await fetch(
-        `https://soiree-production.up.railway.app/api/v1/auth/logout?session_id=${S.sessionId}`,
+        `${API_BASE}/api/v1/auth/logout?session_id=${S.sessionId}`,
         { method: 'POST' }
       );
     } catch(e) {}
@@ -2897,7 +2903,7 @@ async function handleSwiggyAuth() {
     return;
   }
   try {
-    const authStartRes = await fetch('https://soiree-production.up.railway.app/api/v1/auth/start');
+    const authStartRes = await fetch(`${API_BASE}/api/v1/auth/start`);
     const authStartData = await authStartRes.json();
     window.location.href = authStartData.authorize_url;
   } catch(e) {

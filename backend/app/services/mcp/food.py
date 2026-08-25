@@ -86,7 +86,9 @@ class FoodMCPClient:
         # Flag to use mock data when MCP credentials aren't configured
         self.use_mock = not bool(settings.SWIGGY_API_KEY)
 
-    async def _call_mcp(self, tool_name: str, params: dict) -> dict:
+    async def _call_mcp(
+        self, tool_name: str, params: dict, access_token: str | None = None
+    ) -> dict:
         """
         Core MCP tool invocation.
 
@@ -106,16 +108,41 @@ class FoodMCPClient:
 
         For now we route to mock methods.
         """
-        if self.use_mock:
+        if not access_token:
             return await self._mock_dispatch(tool_name, params)
+        # Real MCP call using Streamable HTTP transport
+        import httpx
 
-        # TODO: Replace with real MCP SDK call when credentials arrive
-        # from mcp import ClientSession
-        # async with ClientSession(self.server_url, api_key=self.api_key) as session:
-        #     await session.initialize()
-        #     result = await session.call_tool(tool_name, params)
-        #     return result.content[0].text
-        raise NotImplementedError("Set SWIGGY_API_KEY to enable real MCP calls")
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                self.MCP_URL,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json, text/event-stream",
+                },
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {"name": tool_name, "arguments": params},
+                    "id": 1,
+                },
+            )
+            if response.status_code == 401:
+                raise PermissionError("SWIGGY_TOKEN_EXPIRED")
+            if response.status_code == 419:
+                raise PermissionError("SWIGGY_SESSION_REVOKED")
+            import logging
+
+            logging.warning(
+                f"Swiggy MCP {tool_name} status={response.status_code} body={response.text[:500]}"
+            )
+            response.raise_for_status()
+            result = response.json()
+            if "error" in result:
+                raise ValueError(f"MCP error: {result['error']}")
+            # Return full result so orchestrator can parse content
+            return result
 
     async def _mock_dispatch(self, tool_name: str, params: dict) -> dict:
         """Route mock calls to the appropriate mock method."""
@@ -139,7 +166,7 @@ class FoodMCPClient:
     # Public interface — these are what orchestrator.py calls
     # -------------------------------------------------------------------------
 
-    async def get_addresses(self) -> dict[str, Any]:
+    async def get_addresses(self, access_token: str | None = None) -> dict[str, Any]:
         """
         Resolve user's saved delivery addresses.
 
@@ -152,7 +179,7 @@ class FoodMCPClient:
               - label: "Home", "Work" etc.
               - displayText: human-readable address string
         """
-        return await self._call_mcp("get_addresses", {})
+        return await self._call_mcp("get_addresses", {}, access_token=access_token)
 
     async def search_restaurants(
         self,
@@ -161,6 +188,7 @@ class FoodMCPClient:
         dietary_filters: list[str] | None = None,
         budget_per_head: int = 500,
         health_focus: int = 50,
+        access_token: str | None = None,
     ) -> dict[str, Any]:
         """
         Search for food delivery restaurants by addressId.
@@ -191,6 +219,7 @@ class FoodMCPClient:
                 "budget_per_head": budget_per_head,
                 "health_focus": health_focus,
             },
+            access_token=access_token,
         )
 
     async def get_restaurant_menu(self, restaurant_id: str) -> dict[str, Any]:

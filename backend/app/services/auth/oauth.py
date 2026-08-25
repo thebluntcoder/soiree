@@ -47,7 +47,7 @@ LOGOUT_URL = f"{SWIGGY_AUTH_BASE}/auth/logout"
 REGISTER_URL = f"{SWIGGY_AUTH_BASE}/auth/register"
 
 # Our production redirect URI — must exactly match what's registered with Swiggy
-REDIRECT_URI = "https://soiree-blue.vercel.app/auth/callback"
+REDIRECT_URI = settings.REDIRECT_URI
 
 # OAuth scopes — mcp:tools covers all tool calls on all 3 servers
 SCOPES = "mcp:tools"

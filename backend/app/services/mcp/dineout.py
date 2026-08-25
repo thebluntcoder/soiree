@@ -92,17 +92,37 @@ class DineoutMCPClient:
         # Flag to use mock data when MCP credentials aren't configured
         self.use_mock = not bool(settings.SWIGGY_API_KEY)
 
-    async def _call_mcp(self, tool_name: str, params: dict) -> dict:
+    async def _call_mcp(
+        self, tool_name: str, params: dict, access_token: str | None = None
+    ) -> dict:
         """Core MCP tool invocation — see food.py for full explanation."""
-        if self.use_mock:
+        if not access_token:
             return await self._mock_dispatch(tool_name, params)
-        # TODO: Replace with real MCP SDK call when credentials arrive
-        # from mcp import ClientSession
-        # async with ClientSession(self.server_url, api_key=self.api_key) as session:
-        #     await session.initialize()
-        #     result = await session.call_tool(tool_name, params)
-        #     return result.content[0].text
-        raise NotImplementedError("Set SWIGGY_API_KEY to enable real MCP calls")
+        import httpx
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                self.MCP_URL,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json, text/event-stream",
+                },
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {"name": tool_name, "arguments": params},
+                    "id": 1,
+                },
+            )
+            if response.status_code == 401:
+                raise PermissionError("SWIGGY_TOKEN_EXPIRED")
+            response.raise_for_status()
+            result = response.json()
+            if "error" in result:
+                raise ValueError(f"MCP error: {result['error']}")
+            # Return full result so orchestrator can parse content
+            return result
 
     async def _mock_dispatch(self, tool_name: str, params: dict) -> dict:
         """Route mock calls to appropriate mock method."""
@@ -123,7 +143,9 @@ class DineoutMCPClient:
     # Public interface — these are what orchestrator.py calls
     # -------------------------------------------------------------------------
 
-    async def get_saved_locations(self) -> dict[str, Any]:
+    async def get_saved_locations(
+        self, access_token: str | None = None
+    ) -> dict[str, Any]:
         """
         Resolve user's saved locations — returns lat/lng.
 
@@ -136,7 +158,9 @@ class DineoutMCPClient:
               - lat, lng: coordinates for Dineout search
               - displayText: human-readable location string
         """
-        return await self._call_mcp("get_saved_locations", {})
+        return await self._call_mcp(
+            "get_saved_locations", {}, access_token=access_token
+        )
 
     async def search_restaurants(
         self,
@@ -148,6 +172,7 @@ class DineoutMCPClient:
         event_type: str = "date",
         budget_per_head: int = 1000,
         start_hour: int = 20,
+        access_token: str | None = None,
     ) -> dict[str, Any]:
         """
         Search for dine-in restaurants by lat/lng (NOT addressId).
@@ -181,6 +206,7 @@ class DineoutMCPClient:
                 "budget_per_head": budget_per_head,
                 "start_hour": start_hour,
             },
+            access_token=access_token,
         )
 
     async def get_available_slots(

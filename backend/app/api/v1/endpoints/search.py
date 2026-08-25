@@ -21,7 +21,7 @@ This endpoint is fast (~300ms) — no Claude call, just MCP data.
 It returns structured restaurant cards ready to render in the UI.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Header
 from app.schemas.plan import SearchRequest
 from app.services.mcp.orchestrator import MCPOrchestrator
 
@@ -37,7 +37,10 @@ def get_orchestrator() -> MCPOrchestrator:
 
 
 @router.post("/", summary="Discover restaurant options before plan generation")
-async def search_restaurants(request: SearchRequest):
+async def search_restaurants(
+    request: SearchRequest,
+    x_session_id: str | None = Header(None, alias="X-Session-ID"),
+):
     """
     Fetch restaurant options from Swiggy MCP servers.
 
@@ -53,6 +56,11 @@ async def search_restaurants(request: SearchRequest):
           "venue_mode": "hybrid"
         }
     """
+    access_token = None
+    if x_session_id:
+        from app.api.v1.endpoints.auth import get_access_token
+
+        access_token = await get_access_token(x_session_id)
     orchestrator = get_orchestrator()
 
     context = await orchestrator.gather_context(
@@ -68,6 +76,7 @@ async def search_restaurants(request: SearchRequest):
         lng=request.lng,
         notes=request.notes,
         alcohol_preference=request.alcohol_preference,
+        access_token=access_token,
     )
 
     # Extract and format restaurant options for the picker UI

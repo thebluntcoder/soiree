@@ -67,39 +67,37 @@ class MCPOrchestrator:
         self.instamart = InstamartMCPClient()
         self.dineout = DineoutMCPClient()
 
-    async def resolve_addresses(self) -> tuple[str, dict]:
+    async def resolve_addresses(
+        self, access_token: str | None = None
+    ) -> tuple[str, dict]:
         """
-        Resolve addressId (Food/Instamart) and lat/lng (Dineout) in parallel.
-        In mock mode returns hardcoded defaults immediately.
+        Resolve addressId (Food/Instamart) and lat/lng (Dineout).
+
+        Real Swiggy MCP returns text responses that need parsing.
+        Mock mode returns hardcoded defaults immediately.
         """
-        if self.food.use_mock:
+        if not access_token:
             return DEFAULT_MOCK_ADDRESS_ID, DEFAULT_MOCK_LOCATION
 
         addresses_result, locations_result = await asyncio.gather(
-            self.food.get_addresses(),
-            self.dineout.get_saved_locations(),
+            self.food.get_addresses(access_token=access_token),
+            self.dineout.get_saved_locations(access_token=access_token),
             return_exceptions=True,
         )
 
         address_id = DEFAULT_MOCK_ADDRESS_ID
         if not isinstance(addresses_result, Exception):
-            addresses = addresses_result.get("data", [])
-            if addresses:
-                home = next(
-                    (a for a in addresses if a.get("label") == "Home"), addresses[0]
-                )
-                address_id = home.get("id", DEFAULT_MOCK_ADDRESS_ID)
+            address_id = _parse_address_id(addresses_result, preferred_city="Lucknow")
 
         location = DEFAULT_MOCK_LOCATION
         if not isinstance(locations_result, Exception):
-            locations = locations_result.get("data", [])
-            if locations:
-                loc = locations[0]
-                location = {
-                    "lat": loc.get("lat", 26.8467),
-                    "lng": loc.get("lng", 80.9462),
-                }
+            loc = _parse_location(locations_result)
+            if loc:
+                location = loc
 
+        import logging
+
+        logging.info(f"Resolved addressId={address_id}, location={location}")
         return address_id, location
 
     async def gather_context(
@@ -116,6 +114,7 @@ class MCPOrchestrator:
         lng: float | None = None,
         notes: str | None = None,
         alcohol_preference: str = "any",
+        access_token: str | None = None,
     ) -> dict[str, Any]:
         """
         Resolve addresses then fire all relevant MCP calls in parallel.
@@ -137,7 +136,9 @@ class MCPOrchestrator:
             {food, instamart, dineout, venue_mode, budget_split, coordinates}
         """
         budget_split = self._calculate_budget_split(budget, venue_mode)
-        address_id, saved_location = await self.resolve_addresses()
+        address_id, saved_location = await self.resolve_addresses(
+            access_token=access_token
+        )
 
         # Use device GPS if provided (more accurate than saved location)
         dineout_lat = lat or saved_location["lat"]
@@ -159,6 +160,7 @@ class MCPOrchestrator:
                         dietary_filters=dietary_tags,
                         budget_per_head=budget_split["food"] // max(guest_count, 1),
                         health_focus=health_focus,
+                        access_token=access_token,
                     ),
                 )
             )
@@ -179,6 +181,7 @@ class MCPOrchestrator:
                         guest_count=guest_count,
                         dietary_tags=dietary_tags,
                         budget=budget_split["instamart"],
+                        access_token=access_token,
                     ),
                 )
             )
@@ -199,6 +202,7 @@ class MCPOrchestrator:
                         event_type=event_type,
                         budget_per_head=budget_split["dineout"] // max(guest_count, 1),
                         start_hour=int(start_hour),
+                        access_token=access_token,
                     ),
                 )
             )
@@ -415,3 +419,86 @@ def _dineout_query(
         base += " family no bar"
 
     return base.strip()
+
+
+def _parse_address_id(response: dict, preferred_city: str = "") -> str:
+    """
+    Parse real Swiggy MCP get_addresses response.
+
+    Real response format:
+    {"result": {"content": [{"type": "text", "text": "Found 11 saved addresses...\n1. [Home] Name: Address (ID: abc123)\n..."}]}}
+
+    Tries to find address matching preferred_city first,
+    falls back to Home label, then first address.
+    """
+    import re
+
+    try:
+        # Extract text content from MCP response
+        content = response.get("result", {}).get("content", [])
+        text = next((c["text"] for c in content if c.get("type") == "text"), "")
+
+        if not text:
+            return DEFAULT_MOCK_ADDRESS_ID
+
+        # Parse lines like: "1. [Home] Name: Address (ID: abc123)"
+        # or: "1. [Label] Name: address text (ID: xyz)"
+        id_pattern = re.compile(r"\(ID:\s*([^\)]+)\)")
+        city_pattern = (
+            re.compile(preferred_city, re.IGNORECASE) if preferred_city else None
+        )
+
+        lines = text.split("\n")
+
+        # Try to find address matching preferred city
+        if city_pattern:
+            for line in lines:
+                if city_pattern.search(line):
+                    match = id_pattern.search(line)
+                    if match:
+                        return match.group(1).strip()
+
+        # Fall back to Home label
+        for line in lines:
+            if "[Home]" in line or "[home]" in line:
+                match = id_pattern.search(line)
+                if match:
+                    return match.group(1).strip()
+
+        # Fall back to first address with an ID
+        for line in lines:
+            match = id_pattern.search(line)
+            if match:
+                return match.group(1).strip()
+
+    except Exception as e:
+        import logging
+
+        logging.warning(f"Failed to parse address response: {e}")
+
+    return DEFAULT_MOCK_ADDRESS_ID
+
+
+def _parse_location(response: dict) -> dict | None:
+    """
+    Parse real Swiggy MCP get_saved_locations response for Dineout.
+    Returns {lat, lng} or None if parsing fails.
+    """
+    import re
+
+    try:
+        content = response.get("result", {}).get("content", [])
+        text = next((c["text"] for c in content if c.get("type") == "text"), "")
+
+        # Look for lat/lng patterns in text
+        lat_match = re.search(r"lat[itude]*[:\s]+([0-9.]+)", text, re.IGNORECASE)
+        lng_match = re.search(r"l[ong]+[itude]*[:\s]+([0-9.]+)", text, re.IGNORECASE)
+
+        if lat_match and lng_match:
+            return {
+                "lat": float(lat_match.group(1)),
+                "lng": float(lng_match.group(1)),
+            }
+    except Exception:
+        pass
+    return None

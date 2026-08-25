@@ -76,17 +76,37 @@ class InstamartMCPClient:
         # Flag to use mock data when MCP credentials aren't configured
         self.use_mock = not bool(settings.SWIGGY_API_KEY)
 
-    async def _call_mcp(self, tool_name: str, params: dict) -> dict:
+    async def _call_mcp(
+        self, tool_name: str, params: dict, access_token: str | None = None
+    ) -> dict:
         """Core MCP tool invocation — see food.py for full explanation."""
-        if self.use_mock:
+        if not access_token:
             return await self._mock_dispatch(tool_name, params)
-        # TODO: Replace with real MCP SDK call when credentials arrive
-        # from mcp import ClientSession
-        # async with ClientSession(self.server_url, api_key=self.api_key) as session:
-        #     await session.initialize()
-        #     result = await session.call_tool(tool_name, params)
-        #     return result.content[0].text
-        raise NotImplementedError("Set SWIGGY_API_KEY to enable real MCP calls")
+        import httpx
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                self.MCP_URL,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json, text/event-stream",
+                },
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {"name": tool_name, "arguments": params},
+                    "id": 1,
+                },
+            )
+            if response.status_code == 401:
+                raise PermissionError("SWIGGY_TOKEN_EXPIRED")
+            response.raise_for_status()
+            result = response.json()
+            if "error" in result:
+                raise ValueError(f"MCP error: {result['error']}")
+            # Return full result so orchestrator can parse content
+            return result
 
     async def _mock_dispatch(self, tool_name: str, params: dict) -> dict:
         """Route mock calls to appropriate mock method."""
@@ -107,7 +127,7 @@ class InstamartMCPClient:
     # Public interface — these are what orchestrator.py calls
     # -------------------------------------------------------------------------
 
-    async def get_addresses(self) -> dict[str, Any]:
+    async def get_addresses(self, access_token: str | None = None) -> dict[str, Any]:
         """
         Resolve user's saved delivery addresses.
         Same as Food get_addresses — must be called before search_products.
@@ -118,7 +138,7 @@ class InstamartMCPClient:
               - label: "Home", "Work" etc.
               - displayText: human-readable address string
         """
-        return await self._call_mcp("get_addresses", {})
+        return await self._call_mcp("get_addresses", {}, access_token=access_token)
 
     async def search_products(
         self,
@@ -128,6 +148,7 @@ class InstamartMCPClient:
         guest_count: int = 2,
         dietary_tags: list[str] | None = None,
         budget: int | None = None,
+        access_token: str | None = None,
     ) -> dict[str, Any]:
         """
         Find grocery products by addressId + query.
@@ -162,26 +183,32 @@ class InstamartMCPClient:
                 "dietary_tags": dietary_tags or [],
                 "budget": budget,
             },
+            access_token=access_token,
         )
 
-    async def get_go_to_items(self, address_id: str) -> dict[str, Any]:
+    async def get_go_to_items(
+        self, address_id: str, access_token: str | None = None
+    ) -> dict[str, Any]:
         """
         User's frequently ordered SKUs — present as one-tap quick reorder.
         Bypass search for returning users who want to quickly restock.
 
         Args:
             address_id: from get_addresses() — delivery location
+            access_token: optional authentication token
 
         Returns frequently-ordered products with spinId for instant add-to-cart.
         """
-        return await self._call_mcp("your_go_to_items", {"addressId": address_id})
+        return await self._call_mcp(
+            "your_go_to_items", {"addressId": address_id}, access_token=access_token
+        )
 
-    async def get_cart(self) -> dict[str, Any]:
+    async def get_cart(self, access_token: str | None = None) -> dict[str, Any]:
         """
         Get current cart contents with bill breakdown and payment methods.
         Check for MIN_ORDER_NOT_MET (₹99 minimum) before checkout.
         """
-        return await self._call_mcp("get_cart", {})
+        return await self._call_mcp("get_cart", {}, access_token=access_token)
 
     # -------------------------------------------------------------------------
     # Mock responses — mirror real Instamart MCP response shapes.

@@ -118,6 +118,9 @@ async def generate_plan(event_data: dict[str, Any]) -> AsyncIterator[str]:
             # Optional device GPS — improves Dineout search accuracy
             lat=event_data.get("lat"),
             lng=event_data.get("lng"),
+            notes=event_data.get("notes"),
+            alcohol_preference=event_data.get("alcohol_preference"),
+            access_token=event_data.get("access_token"),
         )
 
         offers_task = offers_engine.get_active_offers(

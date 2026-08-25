@@ -42,6 +42,11 @@ class Settings(BaseSettings):
 
     # Anthropic
     ANTHROPIC_API_KEY: str = ""
+    
+    # OAuth redirect URI — changes per environment
+    # Production: https://soiree-blue.vercel.app/auth/callback
+    # Local dev:  http://localhost/callback (port 80, whitelisted by Swiggy)
+    REDIRECT_URI: str = "https://soiree-blue.vercel.app/auth/callback"
 
     # Swiggy MCP (from mcp.swiggy.com/builders)
     SWIGGY_API_KEY: str = ""
