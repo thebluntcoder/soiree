@@ -37,6 +37,8 @@ since that's a short conversational reply where token-by-token is fine.
 """
 
 import asyncio
+import json
+import logging
 from typing import AsyncIterator, Any
 import anthropic
 
@@ -44,6 +46,20 @@ from app.core.config import settings
 from app.services.ai.prompts import build_system_prompt, build_user_prompt
 from app.services.mcp.orchestrator import MCPOrchestrator
 from app.services.offers.engine import OffersEngine
+
+logger = logging.getLogger(__name__)
+
+# Fields of a PlanRequest that a chat "refine" is allowed to change.
+REFINABLE_FIELDS = {
+    "notes",
+    "budget",
+    "guest_count",
+    "dietary_tags",
+    "alcohol_preference",
+    "venue_mode",
+    "health_focus",
+    "start_hour",
+}
 
 # Claude model used for plan generation and follow-up chat.
 PLAN_MODEL = "claude-sonnet-4-6"
@@ -249,3 +265,136 @@ How to respond:
         yield "data: [DONE]\n\n"
     except Exception as e:
         yield f"data: [ERROR] {str(e)}\n\n"
+
+
+_REFINE_SYSTEM = """You refine an already-generated event plan for Soirée, a life-events concierge.
+
+You get: the current event config (JSON), the generated plan, and the user's message.
+
+Decide what the user wants:
+
+  "modify" — they want the plan CHANGED (different cuisine, budget, guest
+             count, dietary need, venue mode, timing, vibe). Return a
+             `patch` with ONLY the fields that change, and a one-line
+             `reply` confirming what you're changing.
+  "answer" — they're asking a question or want advice, not a change.
+             Return `reply` with a concrete, specific answer that
+             references the actual restaurants / dishes / prices / items in
+             the plan. No generic tips. No "you could ask them to…" filler.
+
+PATCH RULES (only for "modify"):
+- `notes` (string): return the COMPLETE notes — keep anything already
+  there and add the new requirement (e.g. cuisine "italian", "make it more
+  romantic", "one guest is vegan").
+- `budget` (int, 100-50000), `guest_count` (int, 1-100),
+  `health_focus` (int, 0-100), `start_hour` (number, 10-23).
+- `dietary_tags` (list of strings): the full updated list.
+- `alcohol_preference`: "yes" | "no" | "any".
+- `venue_mode`: "out" | "home" | "hybrid".
+- Cuisine and "more romantic" style changes go in `notes` — there is no
+  cuisine field. A vegan guest → bump `guest_count`, add "Vegan" to
+  `dietary_tags`, and note it.
+
+Respond with ONLY a JSON object, no markdown fence:
+{"action": "modify"|"answer", "reply": "...", "patch": { ... }}
+For "answer", omit `patch` or make it {}."""
+
+_REFINE_FALLBACK = (
+    "I couldn't work out that change automatically — try rephrasing, or "
+    "adjust the form on the left and generate a new plan."
+)
+
+
+async def refine_plan(
+    user_message: str,
+    conversation_history: list[dict],
+    event_data: dict[str, Any],
+    plan_text: str = "",
+) -> dict[str, Any]:
+    """
+    Classify a follow-up message as a plan CHANGE or a QUESTION.
+
+    Returns:
+        {
+          "action": "modify" | "answer",
+          "reply": str,                     # confirmation or answer
+          "patch": dict,                    # {} for answers; PlanRequest
+                                            # field overrides for modifies,
+                                            # already filtered to REFINABLE_FIELDS
+        }
+
+    The caller (endpoint) applies `patch` to the stored request and re-runs
+    generation; the frontend swaps in the new plan. Falls back to an
+    "answer" with the raw text if the model doesn't return clean JSON.
+    """
+    client, _, _ = _get_clients()
+
+    context = {
+        k: event_data.get(k)
+        for k in ("event_type", "venue_mode", "location", "budget",
+                  "guest_count", "dietary_tags", "alcohol_preference",
+                  "health_focus", "start_hour", "notes")
+    }
+    user_block = (
+        f"CURRENT CONFIG:\n{json.dumps(context, default=str, ensure_ascii=False)}\n\n"
+        f"CURRENT PLAN:\n{plan_text.strip() or '(unavailable)'}\n\n"
+        f"USER MESSAGE:\n{user_message}"
+    )
+    messages = conversation_history + [{"role": "user", "content": user_block}]
+
+    try:
+        message = await client.messages.create(
+            model=PLAN_MODEL,
+            max_tokens=500,
+            system=_REFINE_SYSTEM,
+            messages=messages,
+        )
+        raw = message.content[0].text.strip()
+        # tolerate a ```json fence if the model adds one
+        if raw.startswith("```"):
+            raw = raw.split("```")[1].removeprefix("json").strip()
+        parsed = json.loads(raw)
+    except (anthropic.APIError, json.JSONDecodeError, KeyError, IndexError) as e:
+        logger.warning("refine_plan parse failed: %s", e)
+        return {"action": "answer", "reply": _REFINE_FALLBACK, "patch": {}}
+
+    action = "modify" if parsed.get("action") == "modify" else "answer"
+    reply = str(parsed.get("reply") or "").strip() or _REFINE_FALLBACK
+    patch = parsed.get("patch") if isinstance(parsed.get("patch"), dict) else {}
+    patch = _sanitize_patch(patch)
+
+    if action == "modify" and not patch:
+        action = "answer"  # nothing actionable came back
+    return {"action": action, "reply": reply, "patch": patch}
+
+
+# field -> (caster, lo, hi) for the numeric PlanRequest fields
+_NUMERIC_BOUNDS = {
+    "budget": (int, 100, 50000),
+    "guest_count": (int, 1, 100),
+    "health_focus": (int, 0, 100),
+    "start_hour": (float, 10, 23),
+}
+
+
+def _sanitize_patch(patch: dict) -> dict:
+    """Keep only refinable fields and clamp numbers into PlanRequest ranges."""
+    out: dict[str, Any] = {}
+    for key, value in patch.items():
+        if key not in REFINABLE_FIELDS or value is None:
+            continue
+        if key in _NUMERIC_BOUNDS:
+            cast, lo, hi = _NUMERIC_BOUNDS[key]
+            try:
+                out[key] = max(lo, min(hi, cast(value)))
+            except (TypeError, ValueError):
+                continue
+        elif key == "alcohol_preference" and value in ("yes", "no", "any"):
+            out[key] = value
+        elif key == "venue_mode" and value in ("out", "home", "hybrid"):
+            out[key] = value
+        elif key == "dietary_tags" and isinstance(value, list):
+            out[key] = [str(t) for t in value if t]
+        elif key == "notes":
+            out[key] = str(value)[:500]
+    return out

@@ -7,10 +7,9 @@
 
 import { Suspense } from 'react'
 import { useEffect, useState } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 
 function CallbackHandler() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading')
   const [error, setError] = useState<string>('')
@@ -59,7 +58,14 @@ function CallbackHandler() {
       localStorage.setItem('soiree_session_id', data.session_id)
       localStorage.setItem('soiree_expires_at', String(data.expires_at))
       setStatus('success')
-      setTimeout(() => router.push('/'), 1500)
+
+      // Return to the page that started the flow (e.g. /demo.html), not the
+      // app root. Same-origin path only. Full navigation — /demo.html is a
+      // static file, not a Next.js route.
+      let returnTo = localStorage.getItem('soiree_return') || '/'
+      localStorage.removeItem('soiree_return')
+      if (!returnTo.startsWith('/') || returnTo.startsWith('//')) returnTo = '/'
+      setTimeout(() => { window.location.href = returnTo }, 1200)
 
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'
