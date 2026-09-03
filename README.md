@@ -3,6 +3,8 @@
 > AI-powered event planning built on Swiggy's MCP platform (Food · Instamart · Dineout).
 > Plan a date night, house party, corporate dinner, or birthday — then approve and let the agent place every order.
 
+**[CHANGELOG](CHANGELOG.md)** — what shipped · **[TODO](TODO.md)** — what's next
+
 ---
 
 ## What is Soirée?
@@ -37,14 +39,16 @@ No one has built the **full-evening arc** before: start at a restaurant (Dineout
 | Swiggy OAuth 2.1 PKCE (phone + OTP) | ✅ Working |
 | MCP Orchestrator (asyncio.gather) | ✅ Working |
 | Offer engine (Redis cache) | ✅ Working |
-| Claude streaming plan generation | ✅ Working |
+| Claude plan generation (SSE) | ✅ Working |
 | Two-step flow (restaurant picker → plan) | ✅ Working |
-| Events CRUD API | ✅ Working |
-| Follow-up chat | ✅ Working |
-| Plan persistence to DB | ✅ Working |
-| Alembic migrations (real DDL, no create_all) | ✅ Working |
+| Location → matched to a saved Swiggy address (city + aliases) | ✅ Working |
+| Follow-up chat — answers **and** applies plan changes (`/plans/refine`) | ✅ Working |
+| Events CRUD API · `/offers` · `/users/me` · `/orders/{id}` | ✅ Working |
+| Plan persistence to DB (+ per-service costs) | ✅ Working |
+| Alembic migrations (real DDL, no `create_all`) | ✅ Working |
+| CI — pytest + migration round-trip | ✅ Working |
 | `demo.html` UI (primary) | ✅ Working |
-| Next.js frontend (`src/`) | ⚠️ Stale — pre-dates OAuth / two-step flow |
+| Next.js frontend (`src/`) | ⚠️ Stale — pre-dates OAuth / two-step / refine |
 | Phone OTP auth for Soirée itself | 🔜 Phase 2 |
 | Agentic ordering | 🔜 Phase 2 |
 
@@ -53,30 +57,31 @@ No one has built the **full-evening arc** before: start at a restaurant (Dineout
 ## Features
 
 ### Phase 1 — Plan & Present ✅ Built
-- **Event setup** — 6 occasion types: Date / Friends Night / Birthday / Corporate / House Party / Family Dinner
-- **Guest roster** — named guests with per-person dietary tags, or headcount-only mode
-- **Location picker** — GPS detect or city/area text search
+- **Swiggy OAuth 2.1 PKCE** — phone + OTP on Swiggy's own page; token in Redis (5-day), threaded into every MCP call as a Bearer token. No token → mock data of the same shape.
+- **Event setup** — 6 occasion types (Date / Friends / Birthday / Corporate / House Party / Family), alcohol preference (yes / no / any)
+- **Guest roster** — named guests with per-person diet + allergens, or headcount-only mode
+- **Location** — city/area text or GPS detect. The typed city is matched to one of your **saved Swiggy addresses** (with renamed-city aliases); if you have none there, the plan falls back to your default address and says so.
 - **Venue mode** — Dine Out (Dineout only) / Stay In (Food + Instamart) / Hybrid (full arc)
-- **Dietary + health context** — per-guest dietary flags (Veg, Vegan, Keto, Jain, Gluten-Free, Halal, No-Nuts) + wellness slider
-- **AI plan generation** — Claude claude-sonnet-4-20250514 streams a complete plan via SSE: timeline, Dineout pick + slot, food delivery options, Instamart cart
-- **Offer & discount engine** — live Swiggy offers fetched, filtered by budget, displayed with savings
-- **Events persistence** — events saved to Postgres with full CRUD API
-- **Plan persistence** — generated plans saved to Postgres with status tracking (generating → ready)
-- **Follow-up chat** — conversational plan refinement after generation. Suggestion chips for common requests. Full conversation history sent to Claude for context-aware replies.
+- **Two-step flow** — real restaurant options are fetched first; you pick, then the plan is built around your choice
+- **AI plan generation** — Claude (`claude-sonnet-4-6`) generates a complete plan: timeline, Dineout pick + slot, food/dessert options, Instamart cart, offers, cost breakdown
+- **Offer & discount engine** — live Swiggy offers, filtered by budget, `GET /offers/`
+- **Persistence** — every generation saves a fresh `Event` + a `Plan` (status, per-service + total costs) to Postgres
+- **Follow-up chat (`/plans/refine`)** — the chat is grounded in the actual plan. A **question** gets a specific answer; a **change request** ("switch to Italian", "we added a vegan guest", "lower the budget") is turned into a validated patch and the plan is rebuilt in place.
 
 ### Phase 2 — Approve & Order 🔜
-- One-tap autonomous ordering — agent calls `place_food_order` + `checkout` + `book_table`
-- Live order tracking across all 3 Swiggy services
+- One-tap autonomous ordering — agent calls `book_table` + `place_food_order` + `checkout` behind a confirmation screen, with a 60-second undo
+- Phone-OTP auth for Soirée itself (MSG91) — replaces the demo user
+- Live order tracking (`GET /orders/{plan_id}` is stubbed for this)
 - Shareable plan card with guest RSVP
-- Phone OTP auth (MSG91)
 - User memory — learned preferences across events
-- Native mobile app (React Native)
 
 ### Phase 3 — Scale 🔜
-- Group consensus mode — guests submit preferences, AI finds optimal menu
+- Group consensus mode — guests submit preferences, AI finds the optimal menu
 - Slack / Teams bot (`/soiree lunch 12 people`)
 - Corporate billing + GST receipts
-- Multi-city support, repeat event templates
+- Repeat-event templates, multi-city support
+
+> Full backlog with priorities: **[TODO.md](TODO.md)**.
 
 ---
 
@@ -102,18 +107,23 @@ User input (event config)
   build_user_prompt() — MCP JSON injected into Claude prompt
         │
         ▼
-  Claude claude-sonnet-4-20250514 streams response
+  Claude claude-sonnet-4-6 response (collected, newlines → ⏎, one SSE frame)
   [BRIEF] [TIMELINE] [DINEOUT] [FOOD] [INSTAMART] [HEALTH] [OFFERS] [COST]
         │
         ▼
-  SSE stream → Next.js frontend (ReadableStream reader)
+  SSE stream → frontend (demo.html, ReadableStream reader)
         │
         ▼
-  parsePlan() — section markers extracted into structured cards
+  parse() — section markers extracted into structured cards; plan text kept
+        │           for follow-up chat grounding
+        ▼
+  Rendered: Timeline, Dineout, Food, Instamart, Offers, Cost cards
         │
         ▼
-  Rendered: Timeline card, Dineout card, Food card, Instamart card,
-            Offers card, Cost card
+  Follow-up chat → POST /plans/refine → answer, or patch + re-run generate
+        │
+        ▼
+  (Phase 2) Approve → POST /plans/{id}/order → book_table + place_food_order + checkout
 ```
 
 ### Key Technical Decisions
@@ -145,7 +155,7 @@ The order agent (Phase 2) always surfaces a confirmation screen before calling a
 | Layer | Technology | Why |
 |---|---|---|
 | API server | **FastAPI** | Async-native, Pydantic built-in, SSE via StreamingResponse |
-| AI | **Anthropic Python SDK** + claude-sonnet-4-20250514 | Native streaming, tool chaining |
+| AI | **Anthropic Python SDK** + claude-sonnet-4-6 | Native streaming, tool chaining |
 | MCP | **mcp Python SDK** | Connects to all 3 Swiggy MCP servers |
 | Database | **PostgreSQL** + **SQLModel** | SQLAlchemy + Pydantic fused — no schema duplication |
 | Migrations | **Alembic** | Standard SQLAlchemy migration tool |
@@ -389,7 +399,7 @@ OAuth handshake to complete. See `docs/mcp-integration.md`.
 ## Built with
 
 - [Swiggy Builders Club](https://mcp.swiggy.com/builders) — Food, Instamart, Dineout MCP APIs
-- [Anthropic Claude](https://anthropic.com) — AI plan generation (claude-sonnet-4-20250514)
+- [Anthropic Claude](https://anthropic.com) — AI plan generation (claude-sonnet-4-6)
 - [FastAPI](https://fastapi.tiangolo.com) — Async Python API server
 - [SQLModel](https://sqlmodel.tiangolo.com) — Database ORM
 - [Next.js](https://nextjs.org) — React frontend framework
@@ -435,7 +445,7 @@ OAuth handshake to complete. See `docs/mcp-integration.md`.
    └── Serialises all MCP JSON + event config + offers into one prompt string
        Claude treats this data as ground truth
 
-9. Claude claude-sonnet-4-20250514 generates full response
+9. Claude claude-sonnet-4-6 generates full response
    └── collect-then-send: full response collected, newlines encoded as ⏎,
        sent as single SSE message to avoid marker fragmentation
 
@@ -709,24 +719,36 @@ Bug appears
 
 ## Roadmap
 
-- [x] Project scaffold — directory structure, README, CI
-- [x] Core foundation — database, Redis, models (User, Event, Plan)
-- [x] Swiggy MCP clients — Food, Instamart, Dineout (mock mode)
-- [x] MCP Orchestrator — asyncio.gather() parallel coordinator
-- [x] Offer engine — live fetch, Redis cache
-- [x] AI planner — Claude streaming, SSE encoding
-- [x] Events CRUD API
-- [x] Plan persistence — save to DB after generation
-- [x] Next.js frontend — streaming plan UI
-- [x] Follow-up chat UI — suggestion chips, streaming replies, conversation history
-- [x] Alembic migrations — real DDL, `create_all()` removed
-- [x] Unit + integration tests — 66 passing, CI on push/PR
+### Done
+
+- [x] Core foundation — DB, Redis, models, MCP orchestrator (`asyncio.gather`)
+- [x] Offer engine, AI planner (SSE), Events CRUD, plan persistence
 - [x] Real Swiggy MCP — live via per-user OAuth 2.1 PKCE token
 - [x] Two-step flow — restaurant picker feeds the chosen venue into the plan
-- [ ] Phone OTP auth for Soirée itself (Phase 2)
-- [ ] Agentic ordering (Phase 2)
-- [ ] Shareable plan card (Phase 2)
-- [ ] User memory / preference learning (Phase 2)
-- [ ] Group consensus mode (Phase 3)
-- [ ] Slack / Teams bot (Phase 3)
-- [ ] Corporate billing + GST receipts (Phase 3)
+- [x] Follow-up chat that answers **and** applies plan changes (`/plans/refine`)
+- [x] Typed location → matched to a saved Swiggy address (+ renamed-city aliases, fallback banner)
+- [x] Alembic migrations — real DDL, `create_all()` removed
+- [x] `offers` / `users` / `orders` endpoints; per-service cost persistence
+- [x] CI — pytest + migration round-trip, 91 tests
+
+### Next
+
+See [TODO.md](TODO.md) for the full prioritised list.
+
+- [ ] Deploy everything merged since PR #1 (Railway + Vercel)
+- [ ] Production hardening — `SECRET_KEY` guard, token encryption, rate limits, privacy policy, analytics
+- [ ] Phone-OTP auth for Soirée itself — replace the demo user
+- [ ] `create_address` flow for cities the user hasn't saved
+- [ ] Phase 2 — agentic ordering (`book_table` / `place_food_order` / `checkout`, confirmation + undo)
+- [ ] Decide the fate of the stale `frontend/src/` Next.js app
+- [ ] Phase 3 — group consensus, Slack bot, corporate billing
+
+---
+
+## Docs
+
+- [CHANGELOG.md](CHANGELOG.md) — released changes
+- [TODO.md](TODO.md) — prioritised backlog
+- [docs/api.md](docs/api.md) — endpoint reference
+- [docs/deployment.md](docs/deployment.md) — Railway / Vercel / migrations
+- [docs/mcp-integration.md](docs/mcp-integration.md) — Swiggy MCP transport, address resolution, error handling

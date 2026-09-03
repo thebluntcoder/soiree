@@ -7,30 +7,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### Fixed
-- **Typed location is now used.** `resolve_addresses` hard-coded
-  `preferred_city="Lucknow"` — so with a real Swiggy token every search
-  ran against the user's Lucknow saved address no matter what city they
-  typed. It now matches the typed city against the user's saved Swiggy
-  addresses by **shared city word** (not an exact regex), with a ~35-name
-  synonym table for the renamed cities (Gurugram/Gurgaon,
-  Bengaluru/Bangalore, Varanasi/Banaras/Kashi, Vizag/Visakhapatnam, …) and
-  address-noise words ("sector", "road", …) filtered out so they don't
-  cause false matches. If nothing matches (and no GPS was given) the plan
-  falls back to the default address but says so — `[BRIEF]` acknowledges
-  it and the picker shows an amber banner suggesting the user add that
-  city's address in the Swiggy app (Swiggy only lets you search from
-  *saved* addresses, so an unsaved city can't be searched directly).
-
-### Added
-- **Chat can now change the plan.** `POST /plans/refine` classifies a
-  follow-up as a question or a change. A change returns a sanitised
-  `patch` of `PlanRequest` fields (cuisine → `notes`, "vegan guest" →
-  `guest_count` + `dietary_tags`, "lower the budget" → `budget`, …); the
-  frontend merges it and re-runs generation, keeping the chat thread.
-  A question returns a concrete answer grounded in the actual plan
-  (no more "ask them for a corner table" filler). `/plans/chat` stays as
-  a stream-only advisory endpoint for the legacy Next.js client.
+_Nothing yet — see [TODO.md](TODO.md) for what's planned._
 
 ---
 
@@ -41,7 +18,25 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 > between 0.8.0 and here without their own changelog entries; 0.9.0 is the
 > pass that made the supporting infrastructure honest (real migrations,
 > real endpoints, doubled test coverage) and fixed the bugs that review
-> surfaced.
+> surfaced. Shipped as PRs #1–#4.
+
+### Added
+- **Chat can now change the plan.** `POST /plans/refine` classifies a
+  follow-up as a question or a change. A change returns a sanitised
+  `patch` of `PlanRequest` fields (cuisine → `notes`, "vegan guest" →
+  `guest_count` + `dietary_tags`, "lower the budget" → `budget`, …); the
+  frontend merges it and re-runs generation, keeping the chat thread.
+  A question returns a concrete answer grounded in the actual plan
+  (no more "ask them for a corner table" filler). `/plans/chat` stays as
+  a stream-only advisory endpoint for the legacy Next.js client.
+- CI workflow (`pytest` + an `alembic upgrade/downgrade/upgrade` round-trip
+  against a Postgres service).
+- `docker-compose.yml`, `scripts/setup.sh`, `scripts/seed.py`,
+  `docs/{api,deployment,mcp-integration}.md` — were empty.
+- Test coverage more than doubled — v2 prompt selection + alcohol,
+  `_parse_address_id` / `_location_terms`, MCP query builders, per-service
+  cost parsing, refine-patch sanitising, and an orchestrator→prompt
+  integration test. **91 passing** (was 45 + 1 failing).
 
 ### Fixed
 - **Alembic is real now.** The initial migration was empty and `init_db()`
@@ -76,6 +71,19 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   path before the redirect and the `/auth/callback` page returns there
   (`/demo.html`) with a full navigation. Chat panel `max-height` bumped
   400px → 60vh so long replies aren't clipped.
+- **Typed location is now used.** `resolve_addresses` hard-coded
+  `preferred_city="Lucknow"` — so with a real Swiggy token every search
+  ran against the user's Lucknow saved address no matter what city they
+  typed. It now matches the typed city against the user's saved Swiggy
+  addresses by **shared city word** (not an exact regex), with a ~35-name
+  synonym table for the renamed cities (Gurugram/Gurgaon,
+  Bengaluru/Bangalore, Varanasi/Banaras/Kashi, Vizag/Visakhapatnam, …) and
+  address-noise words ("sector", "road", …) filtered so they don't cause
+  false matches. If nothing matches (and no GPS was given) the plan falls
+  back to the default address but says so — `[BRIEF]` acknowledges it and
+  the picker shows an amber banner suggesting the user add that city's
+  address in the Swiggy app (Swiggy only searches from _saved_ addresses,
+  so an unsaved city can't be searched directly).
 
 ### Changed
 - MCP clients (`food`, `instamart`, `dineout`) now inherit one
@@ -88,15 +96,6 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `offers` / `users` / `orders` endpoints implemented — were mounted but
   empty. `GET /offers/`, `GET /users/me`, `GET /orders/{plan_id}`.
 - Model Claude id centralised as `planner.PLAN_MODEL`.
-
-### Added
-- CI workflow (`pytest` + an `alembic upgrade/downgrade/upgrade` round-trip
-  against a Postgres service).
-- `docker-compose.yml`, `scripts/setup.sh`, `scripts/seed.py`,
-  `docs/{api,deployment,mcp-integration}.md` — were empty.
-- Test coverage: v2 prompt selection + alcohol, `_parse_address_id`, the
-  MCP query builders, per-service cost parsing, and an
-  orchestrator→prompt integration test. **66 passing** (was 45 + 1 failing).
 
 ### Removed
 - `app/utils/location.py`, `app/utils/dietary.py` — empty, imported nowhere.
