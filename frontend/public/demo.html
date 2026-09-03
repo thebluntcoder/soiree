@@ -1445,7 +1445,7 @@ input[type=range]::-webkit-slider-thumb:hover {
 
 .chip:hover { border-color: var(--gold-dim); color: var(--gold); background: var(--gold-glow); transform: translateY(-1px); }
 
-.chat-msgs { display: flex; flex-direction: column; gap: 16px; margin-bottom: 16px; max-height: 400px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border2) transparent; padding-right: 4px; }
+.chat-msgs { display: flex; flex-direction: column; gap: 16px; margin-bottom: 16px; max-height: 60vh; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border2) transparent; padding-right: 4px; }
 
 .chat-msg { display: flex; gap: 10px; animation: slideInLeft 0.3s ease both; }
 .chat-msg.user { flex-direction: row-reverse; }
@@ -2855,6 +2855,9 @@ async function handleSwiggyAuth() {
   try {
     const authStartRes = await fetch(`${API_BASE}/api/v1/auth/start`);
     const authStartData = await authStartRes.json();
+    // Remember where to come back to — the OAuth callback lands on a
+    // Next.js route and would otherwise drop the user on the app root.
+    localStorage.setItem('soiree_return', location.pathname + location.search);
     window.location.href = authStartData.authorize_url;
   } catch(e) {
     alert('Could not start Swiggy login. Please try again.');

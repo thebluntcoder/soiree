@@ -48,6 +48,11 @@ _Nothing yet._
   appends chunks verbatim — fixes words jamming together and text vanishing
   after a newline. Removed the "use the regenerate button" advice (there is
   no such button). Chat history resets when a new plan is generated.
+- **OAuth return.** After authorising Swiggy the user landed on the app
+  root (`/`) instead of where they started. `demo.html` now stashes its
+  path before the redirect and the `/auth/callback` page returns there
+  (`/demo.html`) with a full navigation. Chat panel `max-height` bumped
+  400px → 60vh so long replies aren't clipped.
 
 ### Changed
 - MCP clients (`food`, `instamart`, `dineout`) now inherit one
