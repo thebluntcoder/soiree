@@ -26,10 +26,17 @@ from unittest.mock import AsyncMock, patch, MagicMock
 from app.services.mcp.orchestrator import (
     DEFAULT_MOCK_ADDRESS_ID,
     MCPOrchestrator,
+    _city_search_pattern,
     _dineout_query,
     _food_query,
     _parse_address_id,
+    _resolve_address_id,
 )
+
+
+def _mcp_text(text: str) -> dict:
+    """Wrap a string in the real Swiggy MCP response envelope."""
+    return {"result": {"content": [{"type": "text", "text": text}]}}
 
 
 class TestBudgetSplit:
@@ -237,9 +244,74 @@ class TestGatherContext:
         assert context["instamart"] == {"categories": []}
 
 
-def _mcp_text(text: str) -> dict:
-    """Wrap a string in the real Swiggy MCP response envelope."""
-    return {"result": {"content": [{"type": "text", "text": text}]}}
+class TestResolveAddresses:
+    """resolve_addresses picks the saved address matching the typed city."""
+
+    ADDRESSES = _mcp_text(
+        "1. [Home] Me: LDA Colony, Lucknow (ID: luck1)\n"
+        "2. [Work] Me: Cyber Hub, Gurugram (ID: gur1)"
+    )
+
+    @pytest.mark.asyncio
+    async def test_picks_address_for_typed_city(self):
+        orch = MCPOrchestrator()
+        orch.food.get_addresses = AsyncMock(return_value=self.ADDRESSES)
+        orch.dineout.get_saved_locations = AsyncMock(return_value=self.ADDRESSES)
+
+        aid, loc = await orch.resolve_addresses(location="Gurugram", access_token="t")
+        assert aid == "gur1"
+        assert loc["address_id"] == "gur1"
+        assert loc["city_matched"] is True
+
+    @pytest.mark.asyncio
+    async def test_no_match_falls_back_and_flags(self):
+        orch = MCPOrchestrator()
+        orch.food.get_addresses = AsyncMock(return_value=self.ADDRESSES)
+        orch.dineout.get_saved_locations = AsyncMock(return_value=self.ADDRESSES)
+
+        aid, loc = await orch.resolve_addresses(location="Jaipur", access_token="t")
+        assert aid == "luck1"  # [Home]
+        assert loc["city_matched"] is False
+
+    @pytest.mark.asyncio
+    async def test_no_token_is_mock_default(self):
+        aid, loc = await MCPOrchestrator().resolve_addresses(location="Goa")
+        assert aid == DEFAULT_MOCK_ADDRESS_ID
+        assert loc["city_matched"] is True
+
+    @pytest.mark.asyncio
+    async def test_gather_context_sets_location_warning(self):
+        orch = MCPOrchestrator()
+        orch.food.get_addresses = AsyncMock(return_value=self.ADDRESSES)
+        orch.dineout.get_saved_locations = AsyncMock(return_value=self.ADDRESSES)
+        orch.food.search_restaurants = AsyncMock(return_value={"data": {}})
+        orch.instamart.search_products = AsyncMock(return_value={"data": {}})
+        orch.dineout.search_restaurants = AsyncMock(return_value={"data": {}})
+
+        ctx = await orch.gather_context(
+            location="Jaipur",
+            event_type="date",
+            venue_mode="hybrid",
+            dietary_tags=[],
+            guest_count=2,
+            budget=3000,
+            start_hour=20,
+            access_token="t",
+        )
+        assert "Jaipur" in ctx["location_warning"]
+
+        # ...but not when the city DOES match
+        ctx2 = await orch.gather_context(
+            location="Gurugram",
+            event_type="date",
+            venue_mode="hybrid",
+            dietary_tags=[],
+            guest_count=2,
+            budget=3000,
+            start_hour=20,
+            access_token="t",
+        )
+        assert "location_warning" not in ctx2
 
 
 class TestParseAddressId:
@@ -278,6 +350,55 @@ class TestParseAddressId:
 
     def test_malformed_response_returns_default(self):
         assert _parse_address_id({"nope": True}) == DEFAULT_MOCK_ADDRESS_ID
+
+
+class TestResolveAddressId:
+    """_resolve_address_id also reports whether the pick matched the city."""
+
+    SAMPLE = TestParseAddressId.SAMPLE
+
+    def test_city_match_reports_true(self):
+        aid, matched = _resolve_address_id(_mcp_text(self.SAMPLE), "noida")
+        assert (aid, matched) == ("11112222", True)
+
+    def test_alias_pattern_matches_gurgaon(self):
+        text = "1. [Home] Me: DLF Phase 3, Gurgaon (ID: g1)"
+        aid, matched = _resolve_address_id(_mcp_text(text), _city_search_pattern("Gurugram"))
+        assert (aid, matched) == ("g1", True)
+
+    def test_no_match_falls_back_and_reports_false(self):
+        aid, matched = _resolve_address_id(
+            _mcp_text(self.SAMPLE), _city_search_pattern("Gurugram")
+        )
+        assert (aid, matched) == ("43530781", False)  # [Home] Lucknow
+
+    def test_no_pattern_reports_false(self):
+        _, matched = _resolve_address_id(_mcp_text(self.SAMPLE), "")
+        assert matched is False
+
+
+class TestCitySearchPattern:
+    def test_plain_city(self):
+        assert _city_search_pattern("Lucknow") == "lucknow"
+
+    def test_takes_city_after_comma(self):
+        assert _city_search_pattern("Sector 29, Gurugram") == "gurugram|gurgaon"
+
+    def test_alias_both_directions(self):
+        assert _city_search_pattern("Bangalore") == "bengaluru|bangalore"
+        assert _city_search_pattern("Bengaluru") == "bengaluru|bangalore"
+
+    def test_regex_special_chars_escaped(self):
+        # a "." in the city name must not act as a regex wildcard
+        import re
+
+        pat = _city_search_pattern("Ft. Kochi")
+        assert re.compile(pat, re.IGNORECASE).search("Ft. Kochi, Kerala")
+        assert not re.compile(pat, re.IGNORECASE).search("FtXKochi")
+
+    def test_empty(self):
+        assert _city_search_pattern("") == ""
+        assert _city_search_pattern("  ,  ") == ""
 
 
 class TestSearchQueryBuilders:

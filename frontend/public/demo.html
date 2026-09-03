@@ -1829,6 +1829,8 @@ input[type=range]::-webkit-slider-thumb:hover {
         Select one from each section — we'll build your plan around your picks.
       </p>
 
+      <div id="pickerLocWarning" style="display:none;margin-bottom:24px;padding:12px 16px;border:1px solid var(--amber-dim);border-left:2px solid var(--amber);border-radius:8px;background:var(--amber-dim);font-size:12px;color:var(--amber);line-height:1.6"></div>
+
       <!-- Dineout options -->
       <div id="dineoutPicker" style="display:none;margin-bottom:32px">
         <div style="font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--gold);opacity:0.7;margin-bottom:14px;display:flex;align-items:center;gap:12px">
@@ -2715,6 +2717,14 @@ function showPicker(data) {
   S.searchData = data;
   document.getElementById('pickerState').style.display = 'block';
   document.getElementById('emptyState').style.display = 'none';
+
+  const warn = document.getElementById('pickerLocWarning');
+  if (data.location_warning) {
+    warn.textContent = '⚠  ' + data.location_warning;
+    warn.style.display = 'block';
+  } else {
+    warn.style.display = 'none';
+  }
 
   const dineoutSection = document.getElementById('dineoutPicker');
   const foodSection = document.getElementById('foodPicker');

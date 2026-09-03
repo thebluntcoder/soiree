@@ -131,4 +131,7 @@ async def search_restaurants(
         "food": food_options,
         "venue_mode": request.venue_mode,
         "budget_split": context.get("budget_split", {}),
+        # Set when the typed city has no matching saved Swiggy address —
+        # the picker shows results for the user's default address instead.
+        "location_warning": context.get("location_warning"),
     }

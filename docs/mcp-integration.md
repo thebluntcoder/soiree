@@ -44,9 +44,14 @@ Swiggy returns **text**, not structured JSON:
 {"result":{"content":[{"type":"text","text":"Found 10 restaurants..."}]}}
 ```
 
-`orchestrator._parse_address_id()` pulls a single `addressId` out of the
-`get_addresses` text (`(ID: …)`), preferring a line that matches the
-target city, then a `[Home]` line, then the first id.
+`orchestrator._resolve_address_id()` pulls a single `addressId` out of the
+`get_addresses` text (`(ID: …)`), preferring a line that matches the city
+the user typed (`_city_search_pattern` handles Gurugram/Gurgaon-style
+aliases), then a `[Home]` line, then the first id. It also reports whether
+the city actually matched — if not, `gather_context` adds a
+`location_warning` to the context so the plan and picker can tell the user
+their default address was used (you can only search from saved Swiggy
+addresses, so a city with no saved address can't be searched directly).
 
 ## Errors → re-auth
 

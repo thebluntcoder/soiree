@@ -253,6 +253,13 @@ Do NOT suggest alternatives.
     offers_json = json.dumps(offers, indent=2, ensure_ascii=False) if offers else "[]"
     budget_split = mcp_context.get("budget_split", {})
 
+    location_warning = mcp_context.get("location_warning")
+    warning_block = (
+        f"\n⚠️  LOCATION: {location_warning}  → acknowledge this in one sentence in [BRIEF].\n"
+        if location_warning
+        else ""
+    )
+
     return f"""Plan this event using ONLY the Swiggy MCP data provided below.
 
 ═══════════════════════════════
@@ -269,7 +276,7 @@ Alcohol:      {alcohol_label}
 Budget:       ₹{event_data.get("budget", 0):,}
 Split:        Dineout ₹{budget_split.get("dineout", 0):,} | Food ₹{budget_split.get("food", 0):,} | Instamart ₹{budget_split.get("instamart", 0):,}
 Notes:        {event_data.get("notes") or "None"}
-{selected_context}
+{warning_block}{selected_context}
 ═══════════════════════════════
 SWIGGY FOOD MCP DATA
 ═══════════════════════════════

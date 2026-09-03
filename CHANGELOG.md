@@ -7,6 +7,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Typed location is now used.** `resolve_addresses` hard-coded
+  `preferred_city="Lucknow"` — so with a real Swiggy token every search
+  ran against the user's Lucknow saved address no matter what city they
+  typed. It now matches the typed city (with common India name aliases —
+  Gurugram/Gurgaon, Bengaluru/Bangalore, …) against the user's saved
+  Swiggy addresses. If none match (and no GPS was given), the plan falls
+  back to the default address but says so — `[BRIEF]` acknowledges it and
+  the restaurant picker shows an amber banner suggesting the user add that
+  city's address in the Swiggy app.
+
 ### Added
 - **Chat can now change the plan.** `POST /plans/refine` classifies a
   follow-up as a question or a change. A change returns a sanitised

@@ -47,6 +47,7 @@ CONCEPT: Alcohol preference
 
 import asyncio
 import logging
+import re
 from typing import Any
 from app.services.mcp.food import FoodMCPClient
 from app.services.mcp.instamart import InstamartMCPClient
@@ -57,6 +58,44 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MOCK_ADDRESS_ID = "addr_001"
 DEFAULT_MOCK_LOCATION = {"lat": 26.8467, "lng": 80.9462}
+
+# Indian cities that go by two names — match either in a saved-address line.
+_CITY_ALIASES = {
+    "gurugram": "gurugram|gurgaon",
+    "gurgaon": "gurugram|gurgaon",
+    "bengaluru": "bengaluru|bangalore",
+    "bangalore": "bengaluru|bangalore",
+    "mumbai": "mumbai|bombay",
+    "bombay": "mumbai|bombay",
+    "kolkata": "kolkata|calcutta",
+    "calcutta": "kolkata|calcutta",
+    "chennai": "chennai|madras",
+    "madras": "chennai|madras",
+    "puducherry": "puducherry|pondicherry",
+    "pondicherry": "puducherry|pondicherry",
+    "prayagraj": "prayagraj|allahabad",
+    "allahabad": "prayagraj|allahabad",
+    "vadodara": "vadodara|baroda",
+    "baroda": "vadodara|baroda",
+    "kochi": "kochi|cochin",
+    "cochin": "kochi|cochin",
+    "mysuru": "mysuru|mysore",
+    "mysore": "mysuru|mysore",
+}
+
+
+def _city_search_pattern(location: str) -> str:
+    """
+    Turn the location the user typed into a regex that will match it inside a
+    Swiggy saved-address line. "Sector 29, Gurugram" → "gurugram|gurgaon".
+    Empty string when there's nothing to match on.
+    """
+    if not location:
+        return ""
+    city = location.split(",")[-1].strip().lower()
+    if not city:
+        return ""
+    return _CITY_ALIASES.get(city, re.escape(city))
 
 
 class MCPOrchestrator:
@@ -71,16 +110,22 @@ class MCPOrchestrator:
         self.dineout = DineoutMCPClient()
 
     async def resolve_addresses(
-        self, access_token: str | None = None
+        self, location: str = "", access_token: str | None = None
     ) -> tuple[str, dict]:
         """
-        Resolve addressId (Food/Instamart) and lat/lng (Dineout).
+        Resolve the Swiggy addressId to search from.
+
+        The user's typed `location` picks which of their saved Swiggy
+        addresses to use (they may have several, in different cities). If
+        none match — e.g. they typed "Gurugram" but only have a Lucknow
+        address saved — we fall back to their Home / first address and set
+        `city_matched=False` so the plan can say so.
 
         Real Swiggy MCP returns text responses that need parsing.
-        Mock mode returns hardcoded defaults immediately.
+        No token → hardcoded mock defaults.
         """
         if not access_token:
-            return DEFAULT_MOCK_ADDRESS_ID, DEFAULT_MOCK_LOCATION
+            return DEFAULT_MOCK_ADDRESS_ID, {**DEFAULT_MOCK_LOCATION, "city_matched": True}
 
         addresses_result, locations_result = await asyncio.gather(
             self.food.get_addresses(access_token=access_token),
@@ -88,28 +133,32 @@ class MCPOrchestrator:
             return_exceptions=True,
         )
 
-        address_id = DEFAULT_MOCK_ADDRESS_ID
-        if not isinstance(addresses_result, Exception):
-            address_id = _parse_address_id(addresses_result, preferred_city="Lucknow")
+        pattern = _city_search_pattern(location)
 
-        # Dineout also uses address ID (same as Food/Instamart)
-        # get_saved_locations returns same format as get_addresses
-        dineout_address_id = DEFAULT_MOCK_ADDRESS_ID
+        address_id, food_matched = DEFAULT_MOCK_ADDRESS_ID, False
+        if not isinstance(addresses_result, Exception):
+            address_id, food_matched = _resolve_address_id(addresses_result, pattern)
+
+        # Dineout also uses an addressId (same text format as get_addresses).
+        dineout_address_id, dineout_matched = DEFAULT_MOCK_ADDRESS_ID, False
         if not isinstance(locations_result, Exception):
-            dineout_address_id = _parse_address_id(
-                locations_result, preferred_city="Lucknow"
+            dineout_address_id, dineout_matched = _resolve_address_id(
+                locations_result, pattern
             )
 
+        city_matched = not pattern or food_matched or dineout_matched
         logger.info(
-            "Resolved food/instamart addressId=%s, dineout addressId=%s",
+            "Resolved addressId food=%s dineout=%s (requested=%r, city match=%s)",
             address_id,
             dineout_address_id,
+            location,
+            city_matched,
         )
-        # Return dineout_address_id as the "location" dict for compatibility
         return address_id, {
             "address_id": dineout_address_id,
             "lat": DEFAULT_MOCK_LOCATION["lat"],
             "lng": DEFAULT_MOCK_LOCATION["lng"],
+            "city_matched": city_matched,
         }
 
     async def gather_context(
@@ -149,7 +198,7 @@ class MCPOrchestrator:
         """
         budget_split = self._calculate_budget_split(budget, venue_mode)
         address_id, saved_location = await self.resolve_addresses(
-            access_token=access_token
+            location=location, access_token=access_token
         )
 
         # Use device GPS if provided (more accurate than saved location)
@@ -235,6 +284,21 @@ class MCPOrchestrator:
         context["resolved_location"] = location
         context["coordinates"] = {"lat": dineout_lat, "lng": dineout_lng}
         context["alcohol_preference"] = alcohol_preference
+
+        # If the user typed a city but has no Swiggy address there (and gave no
+        # GPS), every search ran against their default address — tell them.
+        used_gps = bool(lat and lng)
+        if (
+            access_token
+            and location
+            and not used_gps
+            and not saved_location.get("city_matched", True)
+        ):
+            context["location_warning"] = (
+                f'No saved Swiggy address matches "{location}" — showing results '
+                f"for your default saved address. Add a {location} address in the "
+                "Swiggy app for local results."
+            )
         context["notes"] = notes
 
         return context
@@ -466,57 +530,58 @@ def _dineout_query(
     return "restaurant"
 
 
-def _parse_address_id(response: dict, preferred_city: str = "") -> str:
+def _resolve_address_id(
+    response: dict, preferred_pattern: str = ""
+) -> tuple[str, bool]:
     """
-    Parse real Swiggy MCP get_addresses response.
+    Parse a real Swiggy get_addresses / get_saved_locations response and pick
+    one addressId.
 
     Real response format:
-    {"result": {"content": [{"type": "text", "text": "Found 11 saved addresses...\n1. [Home] Name: Address (ID: abc123)\n..."}]}}
+    {"result": {"content": [{"type": "text", "text":
+      "Found 11 saved addresses...\n1. [Home] Name: Address, City (ID: abc123)\n..."}]}}
 
-    Tries to find address matching preferred_city first,
-    falls back to Home label, then first address.
+    Order of preference:
+      1. a line matching `preferred_pattern` (a regex — the user's city)
+      2. the [Home] address
+      3. the first address with an ID
+
+    Returns (address_id, matched_requested_city).
     """
-    import re
-
     try:
-        # Extract text content from MCP response
         content = response.get("result", {}).get("content", [])
         text = next((c["text"] for c in content if c.get("type") == "text"), "")
-
         if not text:
-            return DEFAULT_MOCK_ADDRESS_ID
+            return DEFAULT_MOCK_ADDRESS_ID, False
 
-        # Parse lines like: "1. [Home] Name: Address (ID: abc123)"
-        # or: "1. [Label] Name: address text (ID: xyz)"
-        id_pattern = re.compile(r"\(ID:\s*([^\)]+)\)")
-        city_pattern = (
-            re.compile(preferred_city, re.IGNORECASE) if preferred_city else None
-        )
-
+        id_pattern = re.compile(r"\(ID:\s*([^)]+)\)")
         lines = text.split("\n")
 
-        # Try to find address matching preferred city
-        if city_pattern:
+        if preferred_pattern:
+            city_pattern = re.compile(preferred_pattern, re.IGNORECASE)
             for line in lines:
                 if city_pattern.search(line):
                     match = id_pattern.search(line)
                     if match:
-                        return match.group(1).strip()
+                        return match.group(1).strip(), True
 
-        # Fall back to Home label
         for line in lines:
-            if "[Home]" in line or "[home]" in line:
+            if "[home]" in line.lower():
                 match = id_pattern.search(line)
                 if match:
-                    return match.group(1).strip()
+                    return match.group(1).strip(), False
 
-        # Fall back to first address with an ID
         for line in lines:
             match = id_pattern.search(line)
             if match:
-                return match.group(1).strip()
+                return match.group(1).strip(), False
 
     except Exception as e:
         logger.warning("Failed to parse address response: %s", e)
 
-    return DEFAULT_MOCK_ADDRESS_ID
+    return DEFAULT_MOCK_ADDRESS_ID, False
+
+
+def _parse_address_id(response: dict, preferred_city: str = "") -> str:
+    """Back-compat shim — the addressId only, dropping the match flag."""
+    return _resolve_address_id(response, preferred_city)[0]
