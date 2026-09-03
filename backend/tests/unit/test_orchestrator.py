@@ -26,9 +26,10 @@ from unittest.mock import AsyncMock, patch, MagicMock
 from app.services.mcp.orchestrator import (
     DEFAULT_MOCK_ADDRESS_ID,
     MCPOrchestrator,
-    _city_search_pattern,
     _dineout_query,
     _food_query,
+    _line_matches_location,
+    _location_terms,
     _parse_address_id,
     _resolve_address_id,
 )
@@ -358,47 +359,71 @@ class TestResolveAddressId:
     SAMPLE = TestParseAddressId.SAMPLE
 
     def test_city_match_reports_true(self):
-        aid, matched = _resolve_address_id(_mcp_text(self.SAMPLE), "noida")
+        aid, matched = _resolve_address_id(
+            _mcp_text(self.SAMPLE), _location_terms("Noida")
+        )
         assert (aid, matched) == ("11112222", True)
 
-    def test_alias_pattern_matches_gurgaon(self):
+    def test_alias_matches_gurgaon(self):
         text = "1. [Home] Me: DLF Phase 3, Gurgaon (ID: g1)"
-        aid, matched = _resolve_address_id(_mcp_text(text), _city_search_pattern("Gurugram"))
+        aid, matched = _resolve_address_id(_mcp_text(text), _location_terms("Gurugram"))
         assert (aid, matched) == ("g1", True)
 
     def test_no_match_falls_back_and_reports_false(self):
         aid, matched = _resolve_address_id(
-            _mcp_text(self.SAMPLE), _city_search_pattern("Gurugram")
+            _mcp_text(self.SAMPLE), _location_terms("Gurugram")
         )
         assert (aid, matched) == ("43530781", False)  # [Home] Lucknow
 
-    def test_no_pattern_reports_false(self):
-        _, matched = _resolve_address_id(_mcp_text(self.SAMPLE), "")
+    def test_no_terms_reports_false(self):
+        _, matched = _resolve_address_id(_mcp_text(self.SAMPLE), set())
         assert matched is False
 
 
-class TestCitySearchPattern:
+class TestLocationTerms:
     def test_plain_city(self):
-        assert _city_search_pattern("Lucknow") == "lucknow"
+        assert _location_terms("Lucknow") == {"lucknow"}
 
-    def test_takes_city_after_comma(self):
-        assert _city_search_pattern("Sector 29, Gurugram") == "gurugram|gurgaon"
+    def test_takes_city_after_comma_and_expands_alias(self):
+        assert _location_terms("Sector 29, Gurugram") == {"gurugram", "gurgaon"}
 
     def test_alias_both_directions(self):
-        assert _city_search_pattern("Bangalore") == "bengaluru|bangalore"
-        assert _city_search_pattern("Bengaluru") == "bengaluru|bangalore"
+        assert _location_terms("Bangalore") == {"bengaluru", "bangalore"}
+        assert _location_terms("Bengaluru") == {"bengaluru", "bangalore"}
 
-    def test_regex_special_chars_escaped(self):
-        # a "." in the city name must not act as a regex wildcard
-        import re
+    def test_multi_name_group(self):
+        assert _location_terms("Varanasi") == {
+            "varanasi", "banaras", "benares", "kashi"
+        }
 
-        pat = _city_search_pattern("Ft. Kochi")
-        assert re.compile(pat, re.IGNORECASE).search("Ft. Kochi, Kerala")
-        assert not re.compile(pat, re.IGNORECASE).search("FtXKochi")
+    def test_noise_dropped(self):
+        # "sector"/"road" carry no city signal
+        assert _location_terms("MG Road, Sector 5") <= {"mg"}
+
+    def test_falls_back_to_whole_string_when_tail_is_noise(self):
+        assert "koramangala" in _location_terms("Koramangala, Sector 4")
 
     def test_empty(self):
-        assert _city_search_pattern("") == ""
-        assert _city_search_pattern("  ,  ") == ""
+        assert _location_terms("") == set()
+        assert _location_terms("  ,  ") == set()
+
+
+class TestLineMatchesLocation:
+    def test_shared_city_word_matches(self):
+        terms = _location_terms("Kochi")
+        assert _line_matches_location("[Home] Me: Fort Kochi, Kerala (ID: k1)", terms)
+        assert not _line_matches_location("[Home] Me: Kolkata (ID: c1)", terms)
+
+    def test_no_shared_word_is_no_match(self):
+        assert not _line_matches_location(
+            "[Home] Me: Jubilee Hills, Hyderabad (ID: h1)", _location_terms("Pune")
+        )
+
+    def test_generic_words_dont_cause_false_match(self):
+        # both have "sector"/"road" but different cities
+        assert not _line_matches_location(
+            "[Work] Me: Sector 18, Noida (ID: n1)", _location_terms("Sector 5, Pune")
+        )
 
 
 class TestSearchQueryBuilders:
