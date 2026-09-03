@@ -115,7 +115,9 @@ def sample_mcp_context():
             "total_results": 1,
         },
         "venue_mode": "hybrid",
-        "budget_split": {"dineout": 1500, "food": 1050, "instamart": 450},
+        # hybrid split of a ₹3000 budget → 60/20/20 (see
+        # MCPOrchestrator._calculate_budget_split)
+        "budget_split": {"dineout": 1800, "food": 600, "instamart": 600},
     }
 
 

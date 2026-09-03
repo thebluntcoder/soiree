@@ -44,15 +44,17 @@ MCP URL: https://mcp.swiggy.com/im
 
 import asyncio
 from typing import Any
-from app.core.config import settings
+
+from app.services.mcp.base import BaseMCPClient
 
 
-class InstamartMCPClient:
+class InstamartMCPClient(BaseMCPClient):
     """
     Client for Swiggy Instamart MCP server.
 
     Translates event context into a recommended grocery/supplies cart.
     Mock responses mirror real Instamart product catalog structure.
+    Transport (real vs mock) lives in BaseMCPClient.
 
     Usage:
         client = InstamartMCPClient()
@@ -69,44 +71,6 @@ class InstamartMCPClient:
     """
 
     MCP_URL = "https://mcp.swiggy.com/im"
-
-    def __init__(self):
-        self.server_url = settings.SWIGGY_MCP_INSTAMART_URL or self.MCP_URL
-        self.api_key = settings.SWIGGY_API_KEY
-        # Flag to use mock data when MCP credentials aren't configured
-        self.use_mock = not bool(settings.SWIGGY_API_KEY)
-
-    async def _call_mcp(
-        self, tool_name: str, params: dict, access_token: str | None = None
-    ) -> dict:
-        """Core MCP tool invocation — see food.py for full explanation."""
-        if not access_token:
-            return await self._mock_dispatch(tool_name, params)
-        import httpx
-
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                self.MCP_URL,
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Content-Type": "application/json",
-                    "Accept": "application/json, text/event-stream",
-                },
-                json={
-                    "jsonrpc": "2.0",
-                    "method": "tools/call",
-                    "params": {"name": tool_name, "arguments": params},
-                    "id": 1,
-                },
-            )
-            if response.status_code == 401:
-                raise PermissionError("SWIGGY_TOKEN_EXPIRED")
-            response.raise_for_status()
-            result = response.json()
-            if "error" in result:
-                raise ValueError(f"MCP error: {result['error']}")
-            # Return full result so orchestrator can parse content
-            return result
 
     async def _mock_dispatch(self, tool_name: str, params: dict) -> dict:
         """Route mock calls to appropriate mock method."""

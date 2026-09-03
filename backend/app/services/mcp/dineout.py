@@ -44,10 +44,11 @@ MCP URL: https://mcp.swiggy.com/dineout
 
 import asyncio
 from typing import Any
-from app.core.config import settings
+
+from app.services.mcp.base import BaseMCPClient
 
 
-class DineoutMCPClient:
+class DineoutMCPClient(BaseMCPClient):
     """
     Client for Swiggy Dineout MCP server.
 
@@ -85,50 +86,6 @@ class DineoutMCPClient:
     """
 
     MCP_URL = "https://mcp.swiggy.com/dineout"
-
-    def __init__(self):
-        self.server_url = settings.SWIGGY_MCP_DINEOUT_URL or self.MCP_URL
-        self.api_key = settings.SWIGGY_API_KEY
-        # Flag to use mock data when MCP credentials aren't configured
-        self.use_mock = not bool(settings.SWIGGY_API_KEY)
-
-    async def _call_mcp(
-        self, tool_name: str, params: dict, access_token: str | None = None
-    ) -> dict:
-        """Core MCP tool invocation — see food.py for full explanation."""
-        if not access_token:
-            return await self._mock_dispatch(tool_name, params)
-        import httpx
-
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                self.MCP_URL,
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Content-Type": "application/json",
-                    "Accept": "application/json, text/event-stream",
-                },
-                json={
-                    "jsonrpc": "2.0",
-                    "method": "tools/call",
-                    "params": {"name": tool_name, "arguments": params},
-                    "id": 1,
-                },
-            )
-            if response.status_code == 401:
-                raise PermissionError("SWIGGY_TOKEN_EXPIRED")
-            import logging
-
-            logging.warning(f"Dineout MCP {tool_name} REQUEST params={params}")
-            logging.warning(
-                f"Dineout MCP {tool_name} status={response.status_code} body={response.text[:800]}"
-            )
-            response.raise_for_status()
-            result = response.json()
-            if "error" in result:
-                raise ValueError(f"MCP error: {result['error']}")
-            # Return full result so orchestrator can parse content
-            return result
 
     async def _mock_dispatch(self, tool_name: str, params: dict) -> dict:
         """Route mock calls to appropriate mock method."""

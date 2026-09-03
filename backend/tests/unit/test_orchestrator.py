@@ -23,7 +23,13 @@ AsyncMock is required for any method called with `await`.
 
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
-from app.services.mcp.orchestrator import MCPOrchestrator
+from app.services.mcp.orchestrator import (
+    DEFAULT_MOCK_ADDRESS_ID,
+    MCPOrchestrator,
+    _dineout_query,
+    _food_query,
+    _parse_address_id,
+)
 
 
 class TestBudgetSplit:
@@ -46,12 +52,17 @@ class TestBudgetSplit:
         assert split["instamart"] == int(3000 * 0.30)
 
     def test_hybrid_mode_split(self):
-        """Hybrid mode: 50% Dineout, 35% Food, 15% Instamart."""
+        """
+        Hybrid mode: 60% Dineout, 20% Food, 20% Instamart.
+
+        Food is intentionally small in hybrid — enough for a cake/dessert
+        from a bakery, not a second full meal (the guests are dining out).
+        """
         orchestrator = MCPOrchestrator()
         split = orchestrator._calculate_budget_split(3000, "hybrid")
-        assert split["dineout"] == int(3000 * 0.50)
-        assert split["food"] == int(3000 * 0.35)
-        assert split["instamart"] == int(3000 * 0.15)
+        assert split["dineout"] == int(3000 * 0.60)
+        assert split["food"] == int(3000 * 0.20)
+        assert split["instamart"] == int(3000 * 0.20)
 
     def test_split_values_are_integers(self):
         """All split values must be integers — no floats stored in DB."""
@@ -224,3 +235,67 @@ class TestGatherContext:
         # Food should have an error, Instamart should have data
         assert "error" in context["food"]
         assert context["instamart"] == {"categories": []}
+
+
+def _mcp_text(text: str) -> dict:
+    """Wrap a string in the real Swiggy MCP response envelope."""
+    return {"result": {"content": [{"type": "text", "text": text}]}}
+
+
+class TestParseAddressId:
+    """
+    _parse_address_id turns Swiggy's plain-text get_addresses response into
+    a single addressId (points #2 coverage — was previously untested).
+    """
+
+    SAMPLE = (
+        "Found 3 saved addresses:\n"
+        "1. [Work] Uttkarsh Mishra: Vibhuti Khand, Gomti Nagar, Lucknow (ID: 99887766)\n"
+        "2. [Home] Uttkarsh Mishra: E-1/432, LDA Colony, Lucknow (ID: 43530781)\n"
+        "3. [Other] Mom: Sector 12, Noida (ID: 11112222)"
+    )
+
+    def test_prefers_city_match(self):
+        # "Noida" line is the only one for that city
+        assert (
+            _parse_address_id(_mcp_text(self.SAMPLE), preferred_city="Noida")
+            == "11112222"
+        )
+
+    def test_falls_back_to_home_label(self):
+        # No city match → first [Home] line wins
+        assert (
+            _parse_address_id(_mcp_text(self.SAMPLE), preferred_city="Mumbai")
+            == "43530781"
+        )
+
+    def test_falls_back_to_first_id(self):
+        text = "1. [Work] Someone: an address (ID: aaa111)\n2. [Work] Other (ID: bbb222)"
+        assert _parse_address_id(_mcp_text(text), preferred_city="Nowhere") == "aaa111"
+
+    def test_empty_text_returns_default(self):
+        assert _parse_address_id(_mcp_text(""), "Lucknow") == DEFAULT_MOCK_ADDRESS_ID
+
+    def test_malformed_response_returns_default(self):
+        assert _parse_address_id({"nope": True}) == DEFAULT_MOCK_ADDRESS_ID
+
+
+class TestSearchQueryBuilders:
+    """The query builders that turn event context into MCP search strings."""
+
+    def test_food_query_reads_cake_from_notes(self):
+        q = _food_query("birthday", [], "please order a chocolate cake", "hybrid")
+        assert "cake" in q or "bakery" in q
+
+    def test_food_hybrid_defaults_to_celebration_items(self):
+        q = _food_query("birthday", [], None, "hybrid")
+        assert "cake" in q or "bakery" in q or "dessert" in q
+
+    def test_dineout_query_picks_cuisine_from_notes(self):
+        assert _dineout_query("date", [], "any", "somewhere italian please") == "italian"
+
+    def test_dineout_query_respects_no_alcohol(self):
+        assert _dineout_query("family", [], "no", None) == "family"
+
+    def test_dineout_query_veg_restriction(self):
+        assert _dineout_query("friends", ["Veg"], "any", None) == "vegetarian"

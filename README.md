@@ -33,17 +33,19 @@ No one has built the **full-evening arc** before: start at a restaurant (Dineout
 |---|---|
 | FastAPI backend | ✅ Working |
 | SQLModel DB models (User, Event, Plan) | ✅ Working |
-| Swiggy MCP clients (Food, Instamart, Dineout) | ✅ Mock mode — awaiting credentials |
+| Swiggy MCP clients (Food, Instamart, Dineout) | ✅ Live via user OAuth token; mock fallback with no token |
+| Swiggy OAuth 2.1 PKCE (phone + OTP) | ✅ Working |
 | MCP Orchestrator (asyncio.gather) | ✅ Working |
 | Offer engine (Redis cache) | ✅ Working |
 | Claude streaming plan generation | ✅ Working |
+| Two-step flow (restaurant picker → plan) | ✅ Working |
 | Events CRUD API | ✅ Working |
-| Next.js frontend | ✅ Working |
-| Follow-up chat UI | ✅ Working |
+| Follow-up chat | ✅ Working |
 | Plan persistence to DB | ✅ Working |
-| Swiggy MCP real credentials | ⏳ Access requested |
-| Alembic migrations | ✅ Working |
-| Phone OTP auth | 🔜 Phase 2 |
+| Alembic migrations (real DDL, no create_all) | ✅ Working |
+| `demo.html` UI (primary) | ✅ Working |
+| Next.js frontend (`src/`) | ⚠️ Stale — pre-dates OAuth / two-step flow |
+| Phone OTP auth for Soirée itself | 🔜 Phase 2 |
 | Agentic ordering | 🔜 Phase 2 |
 
 ---
@@ -196,16 +198,20 @@ soiree/
 │   │   ├── api/v1/
 │   │   │   ├── router.py                  # Mounts all endpoint routers
 │   │   │   └── endpoints/
+│   │   │       ├── auth.py                # Swiggy OAuth 2.1 PKCE (start/callback/status/logout)
+│   │   │       ├── search.py              # POST /search/ — pre-generation restaurant discovery
 │   │   │       ├── events.py              # CRUD: create, list, get, patch, delete
 │   │   │       ├── plans.py               # SSE streaming plan generation + chat
-│   │   │       ├── users.py               # Auth endpoints (Phase 2)
-│   │   │       ├── offers.py              # Live offers fetch
-│   │   │       └── orders.py              # Order status tracking (Phase 2)
+│   │   │       ├── users.py               # GET /users/me (demo user; real auth = Phase 2)
+│   │   │       ├── offers.py              # GET /offers/ — live offers for a location + budget
+│   │   │       └── orders.py              # GET /orders/{plan_id} — order status (read-only)
 │   │   ├── lib/
 │   │   │   └── parse_plan.py              # Server-side plan parser (mirrors frontend parsePlan.ts)
 │   │   ├── services/
 │   │   │   ├── plan_service.py            # DB operations: create_plan, update_plan_text, get_plan
+│   │   │   ├── auth/oauth.py              # PKCE, DCR, token exchange
 │   │   │   ├── mcp/
+│   │   │   │   ├── base.py                # BaseMCPClient — shared JSON-RPC transport + auth
 │   │   │   │   ├── orchestrator.py        # asyncio.gather() across all 3 MCPs
 │   │   │   │   ├── food.py                # Swiggy Food MCP client + mocks
 │   │   │   │   ├── instamart.py           # Swiggy Instamart MCP client + mocks
@@ -360,23 +366,23 @@ curl http://localhost:8000/health
 | Plan content wrong | MCP mock data | Check `_mock_search_restaurants()` in `food.py` |
 | Plan not streaming | Planner / SSE | Check `max_tokens`, SSE headers, `⏎` encoding |
 | `MissingGreenlet` error | SQLAlchemy async | Using sync SQLAlchemy code in async context |
-| Tables not created | `init_db()` | Model not imported before `create_all()` |
+| Tables not created / `UndefinedTable` | Alembic | Run `alembic upgrade head` — `init_db()` no longer creates tables |
 | New model field not appearing in DB | Alembic | Run `alembic revision --autogenerate -m "description"` then `alembic upgrade head` |
 
 ---
 
-## Getting Swiggy MCP Access
+## Swiggy MCP access
 
-1. Apply at [mcp.swiggy.com/builders](https://mcp.swiggy.com/builders)
-2. Select Developer track, request all 3 MCP servers
-3. Once approved, add to `backend/.env`:
-   ```
-   SWIGGY_MCP_FOOD_URL=...
-   SWIGGY_MCP_INSTAMART_URL=...
-   SWIGGY_MCP_DINEOUT_URL=...
-   SWIGGY_API_KEY=...
-   ```
-4. Mock mode switches to live automatically — no code changes needed
+There is **no static API key**. Each user authorises Soirée through
+Swiggy's OAuth 2.1 PKCE flow (phone + OTP); the resulting access token is
+stored in Redis and threaded into every MCP call as a Bearer token.
+
+- A request that carries a valid `X-Session-ID` → **live** Swiggy data.
+- A request with no session → **mock** data (identical response shape).
+
+The switch is per-call, in `BaseMCPClient._call_mcp` — nothing to configure.
+The redirect URI (`REDIRECT_URI`) must be whitelisted with Swiggy for the
+OAuth handshake to complete. See `docs/mcp-integration.md`.
 
 ---
 
@@ -559,12 +565,16 @@ Server-Sent Events is a browser standard for one-way server→browser streams. T
 **The `⏎` encoding problem and solution:**
 Claude's output contains newlines. When sent over SSE, a bare newline `\n` is interpreted as an SSE message separator — causing section markers like `[TIMELINE]` to arrive on empty frames and get dropped. Solution: encode all `\n` as `⏎` on the backend before SSE framing, decode back on the frontend after reassembly.
 
-### Mock-first MCP — how switching to real credentials works
-Every MCP client checks one flag at init:
+### Mock-first MCP — how the live/mock switch works
+Every MCP call goes through `BaseMCPClient._call_mcp(tool, params, access_token)`:
 ```python
-self.use_mock = not bool(self.server_url and self.api_key)
+if not access_token:
+    return await self._mock_dispatch(tool_name, params)   # mock
+return await self._real_mcp_call(tool_name, params, access_token)  # live
 ```
-If Swiggy credentials aren't in `.env`, mock data is returned with the exact same shape as real responses. When credentials arrive, set them in `.env` — the entire pipeline switches to live data with zero code changes.
+No token (no Swiggy session) → mock data with the exact same shape as real
+responses. Token present → real JSON-RPC call. The decision is per-request,
+so the same deployment serves both mock demos and live users.
 
 ### Schemas vs Models — why they're separate
 **Models** (`models/`) define DB tables — what goes into Postgres.
@@ -646,7 +656,7 @@ Bug appears
     │
     ├── Data not saving to DB
     │     ├── Did you await session.commit()?
-    │     ├── Is the model imported in init_db() before create_all()?
+    │     ├── Ran alembic upgrade head after pulling new migrations?
     │     └── Check: psql \dt — does the table exist?
     │
     ├── Plan generates but content is wrong
@@ -709,10 +719,11 @@ Bug appears
 - [x] Plan persistence — save to DB after generation
 - [x] Next.js frontend — streaming plan UI
 - [x] Follow-up chat UI — suggestion chips, streaming replies, conversation history
-- [x] Alembic migrations — versioned schema management, create_all() removed 
-- [ ] Unit + integration tests
-- [ ] Real Swiggy MCP credentials
-- [ ] Phone OTP auth (Phase 2)
+- [x] Alembic migrations — real DDL, `create_all()` removed
+- [x] Unit + integration tests — 66 passing, CI on push/PR
+- [x] Real Swiggy MCP — live via per-user OAuth 2.1 PKCE token
+- [x] Two-step flow — restaurant picker feeds the chosen venue into the plan
+- [ ] Phone OTP auth for Soirée itself (Phase 2)
 - [ ] Agentic ordering (Phase 2)
 - [ ] Shareable plan card (Phase 2)
 - [ ] User memory / preference learning (Phase 2)

@@ -46,10 +46,13 @@ CONCEPT: Alcohol preference
 """
 
 import asyncio
+import logging
 from typing import Any
 from app.services.mcp.food import FoodMCPClient
 from app.services.mcp.instamart import InstamartMCPClient
 from app.services.mcp.dineout import DineoutMCPClient
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_MOCK_ADDRESS_ID = "addr_001"
@@ -84,9 +87,6 @@ class MCPOrchestrator:
             self.dineout.get_saved_locations(access_token=access_token),
             return_exceptions=True,
         )
-        import logging
-
-        logging.warning(f"locations_result raw: {str(locations_result)[:800]}")
 
         address_id = DEFAULT_MOCK_ADDRESS_ID
         if not isinstance(addresses_result, Exception):
@@ -100,8 +100,10 @@ class MCPOrchestrator:
                 locations_result, preferred_city="Lucknow"
             )
 
-        logging.info(
-            f"Resolved food/instamart addressId={address_id}, dineout addressId={dineout_address_id}"
+        logger.info(
+            "Resolved food/instamart addressId=%s, dineout addressId=%s",
+            address_id,
+            dineout_address_id,
         )
         # Return dineout_address_id as the "location" dict for compatibility
         return address_id, {
@@ -515,33 +517,6 @@ def _parse_address_id(response: dict, preferred_city: str = "") -> str:
                 return match.group(1).strip()
 
     except Exception as e:
-        import logging
-
-        logging.warning(f"Failed to parse address response: {e}")
+        logger.warning("Failed to parse address response: %s", e)
 
     return DEFAULT_MOCK_ADDRESS_ID
-
-
-def _parse_location(response: dict) -> dict | None:
-    """
-    Parse real Swiggy MCP get_saved_locations response for Dineout.
-    Returns {lat, lng} or None if parsing fails.
-    """
-    import re
-
-    try:
-        content = response.get("result", {}).get("content", [])
-        text = next((c["text"] for c in content if c.get("type") == "text"), "")
-
-        # Look for lat/lng patterns in text
-        lat_match = re.search(r"lat[itude]*[:\s]+([0-9.]+)", text, re.IGNORECASE)
-        lng_match = re.search(r"l[ong]+[itude]*[:\s]+([0-9.]+)", text, re.IGNORECASE)
-
-        if lat_match and lng_match:
-            return {
-                "lat": float(lat_match.group(1)),
-                "lng": float(lng_match.group(1)),
-            }
-    except Exception:
-        pass
-    return None

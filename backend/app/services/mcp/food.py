@@ -31,13 +31,10 @@ CRITICAL PRODUCTION NOTES:
 
 CONCEPT: Mock-first development
 ---------------------------------
-We don't have Swiggy MCP keys yet. So we build the client with:
-  1. The exact same interface the real client will have
-  2. Mock responses that mirror real MCP response shapes exactly
-
-When keys arrive, we replace _mock_dispatch() routing with a real
-MCP tool call — zero changes to orchestrator.py or planner.py.
-This pattern is called "programming to an interface."
+Without a per-user OAuth token, every method returns mock data whose
+shape mirrors real MCP responses exactly. Pass a token and the same
+methods hit the real Swiggy MCP server — see base.BaseMCPClient for
+the transport. Zero changes to orchestrator.py or planner.py either way.
 
 CONCEPT: Why async methods?
 ----------------------------
@@ -53,16 +50,17 @@ MCP URL: https://mcp.swiggy.com/food
 
 import asyncio
 from typing import Any
-from app.core.config import settings
+
+from app.services.mcp.base import BaseMCPClient
 
 
-class FoodMCPClient:
+class FoodMCPClient(BaseMCPClient):
     """
     Client for Swiggy Food MCP server.
 
     Wraps all Food MCP tool calls behind clean async methods.
-    Currently returns mock data — swap _call_mcp() implementation
-    when real credentials arrive.
+    Returns mock data when a call has no access token, real MCP data
+    when it does (transport lives in BaseMCPClient).
 
     Usage:
         client = FoodMCPClient()
@@ -78,71 +76,6 @@ class FoodMCPClient:
     """
 
     MCP_URL = "https://mcp.swiggy.com/food"
-
-    def __init__(self):
-        # MCP server URL from config — falls back to official URL
-        self.server_url = settings.SWIGGY_MCP_FOOD_URL or self.MCP_URL
-        self.api_key = settings.SWIGGY_API_KEY
-        # Flag to use mock data when MCP credentials aren't configured
-        self.use_mock = not bool(settings.SWIGGY_API_KEY)
-
-    async def _call_mcp(
-        self, tool_name: str, params: dict, access_token: str | None = None
-    ) -> dict:
-        """
-        Core MCP tool invocation.
-
-        CONCEPT: MCP tool call structure
-        ----------------------------------
-        Every MCP call follows the same pattern:
-          - tool_name: which tool to invoke (e.g. "search_restaurants")
-          - params: structured input matching that tool's schema
-          - returns: structured output defined by the tool
-
-        In production this will use the MCP Python SDK:
-            from mcp import ClientSession
-            async with ClientSession(self.server_url) as session:
-                await session.initialize()
-                result = await session.call_tool(tool_name, params)
-                return result.content[0].text
-
-        For now we route to mock methods.
-        """
-        if not access_token:
-            return await self._mock_dispatch(tool_name, params)
-        # Real MCP call using Streamable HTTP transport
-        import httpx
-
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                self.MCP_URL,
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Content-Type": "application/json",
-                    "Accept": "application/json, text/event-stream",
-                },
-                json={
-                    "jsonrpc": "2.0",
-                    "method": "tools/call",
-                    "params": {"name": tool_name, "arguments": params},
-                    "id": 1,
-                },
-            )
-            if response.status_code == 401:
-                raise PermissionError("SWIGGY_TOKEN_EXPIRED")
-            if response.status_code == 419:
-                raise PermissionError("SWIGGY_SESSION_REVOKED")
-            import logging
-
-            logging.warning(
-                f"Swiggy MCP {tool_name} status={response.status_code} body={response.text[:500]}"
-            )
-            response.raise_for_status()
-            result = response.json()
-            if "error" in result:
-                raise ValueError(f"MCP error: {result['error']}")
-            # Return full result so orchestrator can parse content
-            return result
 
     async def _mock_dispatch(self, tool_name: str, params: dict) -> dict:
         """Route mock calls to the appropriate mock method."""
