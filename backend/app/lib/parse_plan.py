@@ -18,7 +18,6 @@ We decode them back to \n first before extracting sections.
 """
 
 import re
-import json
 from typing import Any
 
 
@@ -75,6 +74,32 @@ def extract_cost(text: str, pattern: str) -> str:
     return match.group(1) if match else ""
 
 
+def _service_cost(cost_section: str, label: str) -> str:
+    """
+    Pull one service's cost out of the [COST] section.
+
+    The section is meant to read:
+        Dineout: ₹1,275 | Food Delivery: ₹400 | Instamart: ₹149
+        TOTAL: ₹1,824
+    but the model is not perfectly consistent — it may split the line,
+    annotate it ("Dineout (Farzi Cafe): ₹1,530 after discount"), or drop
+    a service entirely when it isn't part of the plan. So: find the first
+    non-TOTAL line that mentions `label` and take the first ₹ amount on it.
+
+    `label` is "Dineout", "Food" or "Instamart".
+    Returns "" when the service isn't in the breakdown.
+    """
+    # Split on newlines AND pipes so "A: ₹1 | B: ₹2" is two segments.
+    for segment in re.split(r"[|\n]", cost_section):
+        if segment.strip().upper().startswith("TOTAL"):
+            continue
+        if re.search(rf"\b{label}\b", segment, re.IGNORECASE):
+            amount = re.search(r"₹\s*([\d,]+)", segment)
+            if amount:
+                return "₹" + amount.group(1)
+    return ""
+
+
 def parse_plan_text(raw_text: str) -> dict[str, Any]:
     """
     Parse full plan text into structured dict for DB storage.
@@ -87,7 +112,8 @@ def parse_plan_text(raw_text: str) -> dict[str, Any]:
 
     Returns:
         dict with keys: brief, timeline, dineout, food, instamart,
-                        health, offers, cost, totalCost, totalSavings
+                        health, offers, cost, totalCost, totalSavings,
+                        dineoutCost, foodCost, instamartCost
     """
     # Decode ⏎ proxy characters back to newlines
     # Then strip SSE "data: " prefixes if any leaked through
@@ -114,4 +140,7 @@ def parse_plan_text(raw_text: str) -> dict[str, Any]:
         "cost": cost,
         "totalCost": extract_cost(cost, r"TOTAL:\s*(₹[\d,]+)"),
         "totalSavings": extract_cost(offers, r"TOTAL SAVINGS:\s*(₹[\d,]+)"),
+        "dineoutCost": _service_cost(cost, "Dineout"),
+        "foodCost": _service_cost(cost, "Food"),
+        "instamartCost": _service_cost(cost, "Instamart"),
     }

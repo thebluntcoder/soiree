@@ -40,7 +40,6 @@ from pydantic import BaseModel
 
 from app.core.database import get_session
 from app.schemas.plan import PlanRequest
-from app.schemas.plan_response import PlanReadResponse
 from app.services.ai.planner import generate_plan, generate_followup
 from app.services.plan_service import (
     create_plan,
@@ -73,7 +72,6 @@ async def create_plan_endpoint(
     The event_id in PlanRequest is optional for now — if not provided,
     the plan is saved without an event link (demo mode).
     """
-    
     # Resolve access token if session provided
     # When session_id is present → real Swiggy MCP calls
     # When absent → mock data (demo mode)
@@ -90,35 +88,41 @@ async def create_plan_endpoint(
                 }
             )
 
-    # Ensure demo user and a demo event exist before creating plan
+    # Ensure the demo user exists, then persist THIS request as a fresh Event.
+    # One Event per generation call — it captures the exact config the user
+    # submitted (occasion, budget, guests, notes …) so the plan's event_id
+    # points at real intent, not a frozen first-ever event.
+    import json as _json
+
     from app.api.v1.endpoints.events import _ensure_demo_user
-    from app.models.event import Event, EventType, VenueMode, EventStatus
-    from sqlmodel import select
+    from app.models.event import Event
 
     await _ensure_demo_user(session)
 
-    # Get or create a demo event to satisfy the foreign key
-    result = await session.execute(
-        select(Event).where(Event.user_id == DEMO_USER_ID).limit(1)
+    event = Event(
+        user_id=DEMO_USER_ID,
+        event_type=request.event_type,
+        venue_mode=request.venue_mode,
+        location=request.location,
+        latitude=request.lat,
+        longitude=request.lng,
+        start_hour=request.start_hour,
+        budget=request.budget,
+        guest_count=request.guest_count,
+        guests=_json.dumps([g.model_dump() for g in request.guests])
+        if request.guests
+        else None,
+        dietary_tags=_json.dumps(request.dietary_tags) if request.dietary_tags else None,
+        health_focus=request.health_focus,
+        notes=request.notes,
     )
-    demo_event = result.scalar_one_or_none()
-    if not demo_event:
-        demo_event = Event(
-            user_id=DEMO_USER_ID,
-            event_type=request.event_type,
-            venue_mode=request.venue_mode,
-            location=request.location,
-            start_hour=request.start_hour,
-            budget=request.budget,
-            guest_count=request.guest_count,
-        )
-        session.add(demo_event)
-        await session.commit()
-        await session.refresh(demo_event)
+    session.add(event)
+    await session.commit()
+    await session.refresh(event)
 
     plan_db = await create_plan(
         session=session,
-        event_id=demo_event.id,
+        event_id=event.id,
         user_id=DEMO_USER_ID,
     )
 
@@ -150,9 +154,11 @@ async def create_plan_endpoint(
         event_stream(),
         media_type="text/event-stream",
         headers={
+            # CORS headers are added by CORSMiddleware (main.py) based on the
+            # request Origin — never hard-code "*" here, it is invalid together
+            # with allow_credentials and masks real misconfiguration.
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
-            "Access-Control-Allow-Origin": "*",
         },
     )
 

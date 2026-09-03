@@ -508,7 +508,8 @@ header {
   }
 
   .cost-breakdown {
-    grid-template-columns: 1fr;
+    /* override the inline repeat(N,1fr) set in renderPlan */
+    grid-template-columns: 1fr !important;
     gap: 1px;
   }
 
@@ -2172,6 +2173,23 @@ function extractCostVal(sectionText) {
   return match ? parseInt(match[1].replace(/,/g, '')) : 0;
 }
 
+// Parse the [COST] section into {label, val} rows, whatever services it
+// lists and in whatever order. Tolerates annotations ("Dineout (Farzi
+// Cafe): ₹1,530 after discount") and a missing service (home/out mode).
+function parseCostRows(costText) {
+  const rows = [];
+  for (const seg of costText.split(/[|\n]/)) {
+    const s = seg.trim();
+    if (!s || /^total\b/i.test(s)) continue;
+    const amount = s.match(/₹\s*[\d,]+/);
+    if (!amount) continue;
+    let label = s.split(/[:—–-]/)[0].replace(/\([^)]*\)/g, '').trim();
+    if (!label || label.length > 24) continue;
+    rows.push({ label, val: amount[0].replace(/\s+/g, '') });
+  }
+  return rows;
+}
+
 function parse(raw) {
   const clean = raw.replace(/^data:\s*/gm,'').split('⏎').join('\n');
   const cost = getSection(clean,'COST');
@@ -2272,20 +2290,17 @@ function renderPlan(plan) {
   }
 
   if (plan.cost) {
-    const parts = plan.cost.match(/(Dineout:\s*₹[\d,]+)[|\s]+(Food(?:\s*Delivery)?:\s*₹[\d,]+)[|\s]+(Instamart:\s*₹[\d,]+)/);
+    const rows = parseCostRows(plan.cost);
     html += `<div class="plan-section reveal" id="r4">
       <div class="section-header">
         <div class="section-line"></div>
         <span class="section-title">Cost Breakdown</span>
       </div>
-      ${parts ? `<div class="cost-breakdown">
-        ${parts.slice(1).map(p => {
-          const [label,val] = p.split(':').map(s => s.trim());
-          return `<div class="cost-col">
-            <div class="cost-col-label">${label}</div>
-            <div class="cost-col-val">${val}</div>
-          </div>`;
-        }).join('')}
+      ${rows.length ? `<div class="cost-breakdown" style="grid-template-columns:repeat(${rows.length},1fr)">
+        ${rows.map(r => `<div class="cost-col">
+            <div class="cost-col-label">${r.label}</div>
+            <div class="cost-col-val">${r.val}</div>
+          </div>`).join('')}
       </div>` : ''}
       ${plan.totalCost ? `<div class="cost-total-row">
         <span class="cost-total-label">Total for the evening</span>
@@ -2785,81 +2800,6 @@ async function generateFromSelection() {
   };
 
   await runGeneration(req);
-}
-
-function showError(message) {
-  document.getElementById('emptyState').style.display = 'flex';
-  document.getElementById('emptyState').querySelector('.empty-heading').textContent = 'Something went wrong';
-  document.getElementById('emptyState').querySelector('.empty-sub').textContent = message || 'Please try again';
-}
-
-async function runGeneration(req) {
-  const btn = document.getElementById('planCta');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="cta-spinner"></span> ORCHESTRATING...';
-  S.streaming = true;
-
-  document.getElementById('emptyState').style.display = 'none';
-  document.getElementById('planContent').style.display = 'none';
-  document.getElementById('planContent').innerHTML = '';
-  document.getElementById('pickerState').style.display = 'none';
-
-  const gen = document.getElementById('genState');
-  gen.style.display = 'flex';
-
-  startBar();
-  startSteps();
-
-  try {
-    const headers = { 'Content-Type': 'application/json' };
-    if (S.sessionId) headers['X-Session-ID'] = S.sessionId;
-
-    const response = await fetch(`${API_BASE}/api/v1/plans/generate`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(req),
-    });
-
-    if (!response.ok) throw new Error(response.status);
-
-    const reader = response.body.getReader();
-    const dec = new TextDecoder('utf-8');
-    let buf = '', acc = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      const parts = buf.split('\n\n');
-      buf = parts.pop() ?? '';
-      for (const part of parts) {
-        const lines = part.split('\n').filter(l => l.startsWith('data: '));
-        if (!lines.length) continue;
-        const content = lines.map(l => l.slice(6)).join('\n');
-        if (content.trim() === '[DONE]') break;
-        if (content.startsWith('PLAN_ID:')) continue;
-        if (content.startsWith('[ERROR]')) throw new Error(content.slice(8));
-        if (content.trim()) acc += content;
-      }
-    }
-
-    reader.releaseLock();
-    stopSteps();
-    finishBar();
-
-    const plan = parse(acc);
-    renderPlan(plan);
-
-  } catch(e) {
-    stopSteps();
-    finishBar();
-    document.getElementById('genState').style.display = 'none';
-    showError(e.message || 'Please try again');
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '✦ &nbsp; PLAN MY EVENING';
-    S.streaming = false;
-  }
 }
 
 async function checkSwiggyAuth() {

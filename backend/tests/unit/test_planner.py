@@ -223,4 +223,81 @@ class TestUserPrompt:
     def test_budget_split_appears(self, sample_event_data, sample_mcp_context, sample_offers):
         """Budget split per service must be in prompt so Claude respects it."""
         prompt = build_user_prompt(sample_event_data, sample_mcp_context, sample_offers)
-        assert "1,500" in prompt or "1500" in prompt  # dineout split
+        assert "1,800" in prompt or "1800" in prompt  # dineout split (60% of ₹3000)
+
+
+class TestUserPromptSelection:
+    """
+    build_user_prompt also carries the restaurant the user picked in the
+    Step 2 picker straight through to Claude (points #3 / #4).
+    """
+
+    def test_selected_dineout_rendered(
+        self, sample_event_data, sample_mcp_context, sample_offers
+    ):
+        chosen = {
+            "id": "dine_x",
+            "name": "Mantar",
+            "cuisine": "North Indian",
+            "rating": 4.8,
+            "cost_for_two": 2400,
+            "distance_km": 3.2,
+            "known_for": ["Rooftop", "Live music"],
+            "available_slots": [{"time": "8:00 PM"}, {"time": "8:30 PM"}],
+            "offers": [{"description": "15% off pre-booking"}],
+        }
+        prompt = build_user_prompt(
+            sample_event_data,
+            sample_mcp_context,
+            sample_offers,
+            selected_dineout=chosen,
+        )
+        assert "USER HAS CHOSEN THIS DINEOUT RESTAURANT" in prompt
+        assert "Mantar" in prompt
+        assert "8:00 PM" in prompt
+        assert "Do NOT suggest alternatives" in prompt
+
+    def test_selected_food_rendered(
+        self, sample_event_data, sample_mcp_context, sample_offers
+    ):
+        chosen = {
+            "id": "rest_x",
+            "name": "Bakingo",
+            "cuisine": "Bakery",
+            "rating": 4.6,
+            "top_dishes": [{"name": "Truffle Cake", "price": 649}],
+            "offers": [],
+        }
+        prompt = build_user_prompt(
+            sample_event_data,
+            sample_mcp_context,
+            sample_offers,
+            selected_food=chosen,
+        )
+        assert "USER HAS CHOSEN THIS FOOD RESTAURANT" in prompt
+        assert "Bakingo" in prompt
+
+    def test_no_selection_has_no_choice_block(
+        self, sample_event_data, sample_mcp_context, sample_offers
+    ):
+        prompt = build_user_prompt(sample_event_data, sample_mcp_context, sample_offers)
+        assert "USER HAS CHOSEN" not in prompt
+
+    def test_alcohol_preference_rendered(
+        self, sample_mcp_context, sample_offers
+    ):
+        event = {
+            "event_type": "friends",
+            "venue_mode": "out",
+            "location": "Lucknow",
+            "start_hour": 20,
+            "budget": 3000,
+            "guest_count": 4,
+            "guests": [],
+            "dietary_tags": [],
+            "health_focus": 50,
+            "notes": None,
+            "alcohol_preference": "no",
+        }
+        prompt = build_user_prompt(event, sample_mcp_context, sample_offers)
+        assert "No alcohol" in prompt

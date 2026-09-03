@@ -142,6 +142,21 @@ TOTAL: ₹1,824"""
         result = parse_plan_text(self.SAMPLE_PLAN)
         assert result["totalSavings"] == "₹325"
 
+    def test_extracts_per_service_costs(self):
+        """Per-service costs are parsed from the [COST] line (point #8)."""
+        result = parse_plan_text(self.SAMPLE_PLAN)
+        assert result["dineoutCost"] == "₹1,275"
+        assert result["foodCost"] == "₹400"  # "Food Delivery: ₹400"
+        assert result["instamartCost"] == "₹149"
+
+    def test_absent_service_cost_is_blank(self):
+        """A stay-in plan has no Dineout line → dineoutCost is ''."""
+        plan = "[COST]\nFood Delivery: ₹700 | Instamart: ₹300\nTOTAL: ₹1,000"
+        result = parse_plan_text(plan)
+        assert result["dineoutCost"] == ""
+        assert result["foodCost"] == "₹700"
+        assert result["instamartCost"] == "₹300"
+
     def test_handles_missing_section(self):
         """
         If a section is absent (e.g. no Dineout for home-mode events),

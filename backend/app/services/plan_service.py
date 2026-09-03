@@ -99,7 +99,11 @@ async def update_plan_text(
     plan.health_insight = parsed.get("health", "")
     plan.active_offers = parsed.get("offers", "")
 
-    # Store cost breakdown as integers for queryability
+    # Store cost breakdown as integers for queryability.
+    # Per-service costs are None when that service wasn't part of the plan.
+    plan.dineout_cost = parse_cost(parsed.get("dineoutCost", ""))
+    plan.food_cost = parse_cost(parsed.get("foodCost", ""))
+    plan.instamart_cost = parse_cost(parsed.get("instamartCost", ""))
     plan.total_cost = parse_cost(parsed.get("totalCost", ""))
     plan.total_savings = parse_cost(parsed.get("totalSavings", ""))
 

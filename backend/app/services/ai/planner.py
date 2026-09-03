@@ -45,6 +45,9 @@ from app.services.ai.prompts import build_system_prompt, build_user_prompt
 from app.services.mcp.orchestrator import MCPOrchestrator
 from app.services.offers.engine import OffersEngine
 
+# Claude model used for plan generation and follow-up chat.
+PLAN_MODEL = "claude-sonnet-4-6"
+
 
 # Module-level singletons — created once, reused across all requests.
 # The Anthropic client maintains its own connection pool internally.
@@ -143,33 +146,23 @@ async def generate_plan(event_data: dict[str, Any]) -> AsyncIterator[str]:
             offers = []  # offers are non-critical — continue without them
 
         # ── Stage 2: Build prompts with full context ──────────────────────────
+        # build_user_prompt handles both cases: a restaurant the user picked
+        # in the Step 2 picker (passed straight through), or no pick (Claude
+        # selects from the MCP data using the system-prompt rules).
         system_prompt = build_system_prompt()
-
-        # Use v2 prompt if selected restaurants provided
-        selected_dineout = event_data.get("selected_dineout")
-        selected_food = event_data.get("selected_food")
-
-        if selected_dineout or selected_food or event_data.get("alcohol_preference"):
-            from app.services.ai.prompts import build_user_prompt_v2
-            user_prompt = build_user_prompt_v2(
-                event_data=event_data,
-                mcp_context=mcp_context,
-                offers=offers,
-                selected_dineout=selected_dineout,
-                selected_food=selected_food,
-            )
-        else:
-            user_prompt = build_user_prompt(
-                event_data=event_data,
-                mcp_context=mcp_context,
-                offers=offers,
-            )
+        user_prompt = build_user_prompt(
+            event_data=event_data,
+            mcp_context=mcp_context,
+            offers=offers,
+            selected_dineout=event_data.get("selected_dineout"),
+            selected_food=event_data.get("selected_food"),
+        )
 
         # ── Stage 3: Collect full Claude response ─────────────────────────────
         # We use create() (not stream()) here — see module docstring for why.
         # Newlines encoded as ⏎ to prevent SSE frame fragmentation.
         message = await client.messages.create(
-            model="claude-sonnet-4-6",
+            model=PLAN_MODEL,
             max_tokens=2000,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
@@ -231,7 +224,7 @@ Never invent new restaurant names or prices — refer only to what was in the or
 
     try:
         async with client.messages.stream(
-            model="claude-sonnet-4-6",
+            model=PLAN_MODEL,
             max_tokens=400,
             system=system,
             messages=messages,

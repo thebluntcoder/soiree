@@ -101,7 +101,9 @@ Format: • <service>: <offer description> — saves ₹<estimated saving>
 End with: TOTAL SAVINGS: ₹<sum>
 
 [COST]
-Itemised breakdown:
+Itemised breakdown. Use EXACTLY this format — one line, pipe-separated,
+plain "Label: ₹amount" pairs with no parenthetical notes, then TOTAL on
+its own line. Omit a service entirely if it is not part of this plan:
 Dineout: ₹<amount> | Food Delivery: ₹<amount> | Instamart: ₹<amount>
 TOTAL: ₹<sum>
 
@@ -140,151 +142,35 @@ def build_user_prompt(
     event_data: dict[str, Any],
     mcp_context: dict[str, Any],
     offers: list[dict],
+    selected_dineout: dict | None = None,
+    selected_food: dict | None = None,
 ) -> str:
     """
-    Build the user prompt by injecting event config + live MCP data.
+    Build the per-request user prompt: event config + live MCP data,
+    plus the specific restaurants the user picked in the Step 2 picker
+    (if any).
 
-    This is called fresh for every plan generation request.
-    The MCP context (restaurants, products, slots) is serialised to JSON
-    and embedded directly — Claude treats it as ground truth.
+    When the user HAS picked a restaurant (selected_dineout / selected_food):
+      - Claude writes the plan AROUND that choice — no re-evaluating options.
+      - Focus shifts to specific dishes, offers, slots, and experience.
+
+    When the user has NOT picked (venue mode with no picker, or picker
+    skipped): Claude selects the best option from the MCP data using the
+    selection rules in the system prompt.
 
     Args:
-        event_data: the PlanRequest fields (event_type, venue_mode, guests etc.)
-        mcp_context: output from MCPOrchestrator.gather_context()
-        offers: active Swiggy offers from OffersEngine
+        event_data:      PlanRequest fields (event_type, venue_mode, guests,
+                         alcohol_preference, notes, …)
+        mcp_context:     output from MCPOrchestrator.gather_context()
+        offers:          active Swiggy offers from OffersEngine
+        selected_dineout: the full Dineout restaurant object the user chose,
+                          or None
+        selected_food:    the full Food restaurant object the user chose,
+                          or None
 
     Returns:
-        Formatted string ready to send as the user message to Claude
+        Formatted string ready to send as the user message to Claude.
     """
-    # Build guest summary — named guests or headcount
-    guests_raw = event_data.get("guests", [])
-    if guests_raw:
-        guest_names = [g.get("name", "Guest") for g in guests_raw if g.get("name")]
-        guest_summary = f"{len(guests_raw)} named guests: {', '.join(guest_names)}"
-        # Collect all per-guest dietary tags
-        all_dietary = set(event_data.get("dietary_tags", []))
-        for g in guests_raw:
-            all_dietary.update(g.get("dietary_tags", []))
-        dietary_summary = ", ".join(all_dietary) if all_dietary else "None specified"
-    else:
-        guest_summary = f"{event_data.get('guest_count', 2)} people (headcount only)"
-        dietary_tags = event_data.get("dietary_tags", [])
-        dietary_summary = ", ".join(dietary_tags) if dietary_tags else "None specified"
-
-    # Format start time — handle 30-minute increments (e.g. 20.5 = 8:30 PM)
-    hour = event_data.get("start_hour", 20)
-    hour_floor = int(hour)
-    mins = "30" if hour % 1 == 0.5 else "00"
-    period = "AM" if hour_floor < 12 else "PM"
-    display_hour = hour_floor if hour_floor <= 12 else hour_floor - 12
-    start_time = f"{display_hour}:{mins} {period}"
-
-    # Health focus label
-    health_focus = event_data.get("health_focus", 50)
-    if health_focus >= 70:
-        health_label = "health-conscious (prefer lighter, nutritious options)"
-    elif health_focus <= 30:
-        health_label = "indulgent (open to rich, heavy food)"
-    else:
-        health_label = "balanced (mix of indulgent and healthy)"
-
-    # Venue mode label
-    venue_labels = {
-        "out": "Dine Out (restaurant only)",
-        "home": "Stay In (food delivery + groceries)",
-        "hybrid": "Hybrid (start at restaurant, continue at home)",
-    }
-    venue_label = venue_labels.get(event_data.get("venue_mode", "hybrid"), "Hybrid")
-
-    # Serialise MCP data as clean JSON for Claude to reference
-    # We pretty-print with indent=2 so it's readable in the prompt
-    food_json = (
-        json.dumps(mcp_context.get("food"), indent=2, ensure_ascii=False)
-        if mcp_context.get("food")
-        else "Not requested for this venue mode"
-    )
-    instamart_json = (
-        json.dumps(mcp_context.get("instamart"), indent=2, ensure_ascii=False)
-        if mcp_context.get("instamart")
-        else "Not requested for this venue mode"
-    )
-    dineout_json = (
-        json.dumps(mcp_context.get("dineout"), indent=2, ensure_ascii=False)
-        if mcp_context.get("dineout")
-        else "Not requested for this venue mode"
-    )
-    offers_json = json.dumps(offers, indent=2, ensure_ascii=False) if offers else "[]"
-    budget_split = mcp_context.get("budget_split", {})
-
-    return f"""Plan this event using ONLY the Swiggy MCP data provided below.
-
-═══════════════════════════════
-EVENT DETAILS
-═══════════════════════════════
-Occasion:     {event_data.get("event_type", "").replace("_", " ").title()}
-Venue mode:   {venue_label}
-Location:     {event_data.get("location", "Not specified")}
-Start time:   {start_time}
-Guests:       {guest_summary}
-Dietary:      {dietary_summary}
-Health focus: {health_label} ({health_focus}/100)
-Total budget: ₹{event_data.get("budget", 0):,}
-Budget split: Dineout ₹{budget_split.get("dineout", 0):,} | Food ₹{budget_split.get("food", 0):,} | Instamart ₹{budget_split.get("instamart", 0):,}
-Notes:        {event_data.get("notes") or "None"}
-
-═══════════════════════════════
-SWIGGY FOOD MCP DATA
-═══════════════════════════════
-{food_json}
-
-═══════════════════════════════
-SWIGGY INSTAMART MCP DATA
-═══════════════════════════════
-{instamart_json}
-
-═══════════════════════════════
-SWIGGY DINEOUT MCP DATA
-═══════════════════════════════
-{dineout_json}
-
-═══════════════════════════════
-ACTIVE SWIGGY OFFERS
-═══════════════════════════════
-{offers_json}
-
-Now generate the complete event plan. You MUST include ALL of these markers exactly as shown, in this exact order, with no exceptions:
-[BRIEF]
-[TIMELINE]
-[DINEOUT]
-[FOOD]
-[INSTAMART]
-[HEALTH]
-[OFFERS]
-[COST]
-
-Each marker must appear on its own line. Use only restaurant names, dish names, prices, and slot times from the MCP data above."""
-
-
-def build_user_prompt_v2(
-    event_data,
-    mcp_context,
-    offers,
-    selected_dineout=None,
-    selected_food=None,
-):
-    """
-    Enhanced user prompt with selected restaurant + alcohol preference.
-
-    When user has selected specific restaurants (Step 2 picker):
-    - Claude writes plan AROUND chosen restaurants
-    - No evaluating options — decision already made
-    - Focus on: specific dishes, offers, slots, experience
-
-    When no selection (legacy mode): Claude picks best from MCP data.
-    """
-    import json
-    from typing import Any
-
     guests_raw = event_data.get("guests", [])
     if guests_raw:
         guest_names = [g.get("name", "Guest") for g in guests_raw if g.get("name")]

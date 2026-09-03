@@ -116,13 +116,27 @@ class PlanRequest(BaseModel):
     lat: Optional[float] = Field(default=None)
     lng: Optional[float] = Field(default=None)
 
-    # User-selected restaurants from Step 2 picker
-    # If None, Claude picks from all available options
+    # User-selected restaurants from the Step 2 picker.
+    # The frontend sends the FULL restaurant object (shape = one item of the
+    # `dineout` / `food` list returned by POST /search/) so the planner can
+    # build the plan around the exact choice without re-resolving an ID
+    # against a fresh MCP search (IDs are not guaranteed stable between calls).
+    # If None, Claude picks the best option from the MCP data.
+    selected_dineout: Optional[dict] = Field(
+        default=None,
+        description="Full Dineout restaurant object chosen by the user, or null",
+    )
+    selected_food: Optional[dict] = Field(
+        default=None,
+        description="Full Food restaurant object chosen by the user, or null",
+    )
+
+    # IDs kept for logging / analytics / future server-side resolution.
     selected_dineout_id: Optional[str] = Field(
         default=None,
-        description="Restaurant ID chosen by user from Dineout search results",
+        description="ID of the chosen Dineout restaurant (mirrors selected_dineout.id)",
     )
     selected_food_restaurant_id: Optional[str] = Field(
         default=None,
-        description="Restaurant ID chosen by user from Food search results",
+        description="ID of the chosen Food restaurant (mirrors selected_food.id)",
     )

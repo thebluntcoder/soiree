@@ -20,10 +20,11 @@ HOW A REQUEST FLOWS THROUGH THIS FILE:
   4. The session is automatically closed after each request
 """
 
-from sqlmodel import SQLModel
+from typing import AsyncGenerator
+
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
-from typing import AsyncGenerator
+
 from app.core.config import settings
 
 
@@ -69,25 +70,27 @@ AsyncSessionLocal = sessionmaker(
 
 async def init_db() -> None:
     """
-    Import models so SQLModel.metadata is populated.
+    Populate SQLModel.metadata by importing every model.
 
-    We no longer call create_all() here — Alembic owns all schema
-    management via migration files in alembic/versions/.
+    Alembic owns all schema management — migration files in
+    alembic/versions/ are the single source of truth. This function
+    does NOT create or alter tables (no create_all): `railway.toml`
+    runs `alembic upgrade head` on deploy, and locally you run it
+    yourself.
 
-    To create or modify tables:
-      alembic revision --autogenerate -m "description"
-      alembic upgrade head
+    To change the schema:
+      1. edit the model
+      2. alembic revision --autogenerate -m "what changed"
+      3. review the generated file in alembic/versions/
+      4. alembic upgrade head
 
-    We still import models here so that any code referencing
-    SQLModel.metadata (e.g. tests) has the full schema available.
+    We import the models here (not just in alembic/env.py) so that
+    anything touching SQLModel.metadata at runtime — and the test
+    suite — sees the full schema.
     """
-    # Models must be imported so SQLModel.metadata knows about them
     from app.models.user import User  # noqa: F401
     from app.models.event import Event  # noqa: F401
     from app.models.plan import Plan  # noqa: F401
-    
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:

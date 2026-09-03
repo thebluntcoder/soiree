@@ -1,0 +1,59 @@
+# Local dev stack for Soirée.
+#
+#   docker compose up -d db redis     # just the datastores (recommended)
+#   docker compose up -d              # + the API in a container
+#
+# The datastores match the connection strings in backend/.env.example.
+# Run migrations after the DB is up:  cd backend && alembic upgrade head
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: soiree-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: soiree
+    ports:
+      - "5432:5432"
+    volumes:
+      - soiree_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: soiree-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: ./backend
+    container_name: soiree-api
+    profiles: ["full"]          # only starts with:  docker compose --profile full up
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/soiree
+      REDIS_URL: redis://redis:6379/0
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret}
+      REDIRECT_URI: http://localhost/auth/callback
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "8000:8000"
+
+volumes:
+  soiree_pgdata:

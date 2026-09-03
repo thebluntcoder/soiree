@@ -114,8 +114,8 @@ class Event(SQLModel, table=True):
 
     # Location — stored as text + optional coordinates.
     # Text is what the user typed ("Koramangala, Bangalore").
-    # Coordinates are resolved later via geocoding (utils/location.py)
-    # and passed to Swiggy MCPs for accurate radius-based search.
+    # Coordinates come from the browser's geolocation API (demo.html → gps())
+    # and are passed to Swiggy MCPs for accurate radius-based search.
     location: str = Field(description="City name or full address as entered by user")
     latitude: Optional[float] = Field(
         default=None, description="Resolved via geocoding"
