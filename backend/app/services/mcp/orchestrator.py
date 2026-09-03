@@ -59,43 +59,90 @@ logger = logging.getLogger(__name__)
 DEFAULT_MOCK_ADDRESS_ID = "addr_001"
 DEFAULT_MOCK_LOCATION = {"lat": 26.8467, "lng": 80.9462}
 
-# Indian cities that go by two names — match either in a saved-address line.
-_CITY_ALIASES = {
-    "gurugram": "gurugram|gurgaon",
-    "gurgaon": "gurugram|gurgaon",
-    "bengaluru": "bengaluru|bangalore",
-    "bangalore": "bengaluru|bangalore",
-    "mumbai": "mumbai|bombay",
-    "bombay": "mumbai|bombay",
-    "kolkata": "kolkata|calcutta",
-    "calcutta": "kolkata|calcutta",
-    "chennai": "chennai|madras",
-    "madras": "chennai|madras",
-    "puducherry": "puducherry|pondicherry",
-    "pondicherry": "puducherry|pondicherry",
-    "prayagraj": "prayagraj|allahabad",
-    "allahabad": "prayagraj|allahabad",
-    "vadodara": "vadodara|baroda",
-    "baroda": "vadodara|baroda",
-    "kochi": "kochi|cochin",
-    "cochin": "kochi|cochin",
-    "mysuru": "mysuru|mysore",
-    "mysore": "mysuru|mysore",
+# Indian cities that go by more than one name — any name maps to the whole
+# group, so "Gurugram" typed by the user matches a "Gurgaon" saved address.
+_CITY_SYNONYM_GROUPS = [
+    {"gurugram", "gurgaon"},
+    {"bengaluru", "bangalore"},
+    {"mumbai", "bombay"},
+    {"kolkata", "calcutta"},
+    {"chennai", "madras"},
+    {"puducherry", "pondicherry", "pondy"},
+    {"prayagraj", "allahabad"},
+    {"vadodara", "baroda"},
+    {"kochi", "cochin", "ernakulam"},
+    {"mysuru", "mysore"},
+    {"thiruvananthapuram", "trivandrum"},
+    {"varanasi", "banaras", "benares", "kashi"},
+    {"kozhikode", "calicut"},
+    {"kollam", "quilon"},
+    {"thrissur", "trichur"},
+    {"alappuzha", "alleppey"},
+    {"kannur", "cannanore"},
+    {"palakkad", "palghat"},
+    {"belagavi", "belgaum"},
+    {"kalaburagi", "gulbarga"},
+    {"hubballi", "hubli"},
+    {"tumakuru", "tumkur"},
+    {"shivamogga", "shimoga"},
+    {"ballari", "bellary"},
+    {"vijayapura", "bijapur"},
+    {"visakhapatnam", "vizag", "waltair"},
+    {"vijayawada", "bezawada"},
+    {"tiruchirappalli", "trichy", "tiruchi"},
+    {"thoothukudi", "tuticorin"},
+    {"tirunelveli", "nellai"},
+    {"panaji", "panjim"},
+    {"shimla", "simla"},
+    {"kanpur", "cawnpore"},
+    {"guwahati", "gauhati"},
+    {"kozhikode", "calicut"},
+    {"rajahmundry", "rajamahendravaram"},
+]
+_CITY_SYNONYMS: dict[str, set[str]] = {}
+for _group in _CITY_SYNONYM_GROUPS:
+    for _name in _group:
+        _CITY_SYNONYMS.setdefault(_name, set()).update(_group)
+
+# Generic address-structure words — never enough to identify a city.
+_ADDRESS_NOISE = {
+    "flat", "floor", "block", "sector", "phase", "plot", "house", "near",
+    "opposite", "opp", "behind", "beside", "next", "road", "street", "lane",
+    "cross", "main", "gate", "circle", "market", "the", "and", "for",
+    "home", "work", "other", "office",
 }
 
 
-def _city_search_pattern(location: str) -> str:
+def _tokens(text: str) -> set[str]:
+    """Lowercase words (3+ letters) from a location or address string."""
+    return {w for w in re.findall(r"[a-z]+", text.lower()) if len(w) >= 3}
+
+
+def _location_terms(location: str) -> set[str]:
     """
-    Turn the location the user typed into a regex that will match it inside a
-    Swiggy saved-address line. "Sector 29, Gurugram" → "gurugram|gurgaon".
-    Empty string when there's nothing to match on.
+    The city-identifying words from what the user typed, expanded with
+    known alternate names.  "Sector 29, Gurugram" → {"gurugram", "gurgaon"}.
+
+    The part after the last comma is almost always the city; if that turns
+    out to be all noise we fall back to the whole string.
     """
     if not location:
-        return ""
-    city = location.split(",")[-1].strip().lower()
-    if not city:
-        return ""
-    return _CITY_ALIASES.get(city, re.escape(city))
+        return set()
+    tail = location.rsplit(",", 1)[-1]
+    terms = _tokens(tail) - _ADDRESS_NOISE
+    if not terms:
+        terms = _tokens(location) - _ADDRESS_NOISE
+    expanded = set(terms)
+    for term in terms:
+        expanded |= _CITY_SYNONYMS.get(term, set())
+    return expanded
+
+
+def _line_matches_location(address_line: str, location_terms: set[str]) -> bool:
+    """True if a saved-address line shares a city word with the request."""
+    if not location_terms:
+        return False
+    return bool(location_terms & (_tokens(address_line) - _ADDRESS_NOISE))
 
 
 class MCPOrchestrator:
@@ -133,20 +180,20 @@ class MCPOrchestrator:
             return_exceptions=True,
         )
 
-        pattern = _city_search_pattern(location)
+        terms = _location_terms(location)
 
         address_id, food_matched = DEFAULT_MOCK_ADDRESS_ID, False
         if not isinstance(addresses_result, Exception):
-            address_id, food_matched = _resolve_address_id(addresses_result, pattern)
+            address_id, food_matched = _resolve_address_id(addresses_result, terms)
 
         # Dineout also uses an addressId (same text format as get_addresses).
         dineout_address_id, dineout_matched = DEFAULT_MOCK_ADDRESS_ID, False
         if not isinstance(locations_result, Exception):
             dineout_address_id, dineout_matched = _resolve_address_id(
-                locations_result, pattern
+                locations_result, terms
             )
 
-        city_matched = not pattern or food_matched or dineout_matched
+        city_matched = not terms or food_matched or dineout_matched
         logger.info(
             "Resolved addressId food=%s dineout=%s (requested=%r, city match=%s)",
             address_id,
@@ -531,7 +578,7 @@ def _dineout_query(
 
 
 def _resolve_address_id(
-    response: dict, preferred_pattern: str = ""
+    response: dict, location_terms: set[str] | None = None
 ) -> tuple[str, bool]:
     """
     Parse a real Swiggy get_addresses / get_saved_locations response and pick
@@ -542,12 +589,13 @@ def _resolve_address_id(
       "Found 11 saved addresses...\n1. [Home] Name: Address, City (ID: abc123)\n..."}]}}
 
     Order of preference:
-      1. a line matching `preferred_pattern` (a regex — the user's city)
+      1. a line sharing a city word with `location_terms` (from _location_terms)
       2. the [Home] address
       3. the first address with an ID
 
     Returns (address_id, matched_requested_city).
     """
+    terms = location_terms or set()
     try:
         content = response.get("result", {}).get("content", [])
         text = next((c["text"] for c in content if c.get("type") == "text"), "")
@@ -557,10 +605,9 @@ def _resolve_address_id(
         id_pattern = re.compile(r"\(ID:\s*([^)]+)\)")
         lines = text.split("\n")
 
-        if preferred_pattern:
-            city_pattern = re.compile(preferred_pattern, re.IGNORECASE)
+        if terms:
             for line in lines:
-                if city_pattern.search(line):
+                if _line_matches_location(line, terms):
                     match = id_pattern.search(line)
                     if match:
                         return match.group(1).strip(), True
@@ -584,4 +631,4 @@ def _resolve_address_id(
 
 def _parse_address_id(response: dict, preferred_city: str = "") -> str:
     """Back-compat shim — the addressId only, dropping the match flag."""
-    return _resolve_address_id(response, preferred_city)[0]
+    return _resolve_address_id(response, _location_terms(preferred_city))[0]
