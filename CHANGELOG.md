@@ -7,7 +7,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+- **Chat can now change the plan.** `POST /plans/refine` classifies a
+  follow-up as a question or a change. A change returns a sanitised
+  `patch` of `PlanRequest` fields (cuisine → `notes`, "vegan guest" →
+  `guest_count` + `dietary_tags`, "lower the budget" → `budget`, …); the
+  frontend merges it and re-runs generation, keeping the chat thread.
+  A question returns a concrete answer grounded in the actual plan
+  (no more "ask them for a corner table" filler). `/plans/chat` stays as
+  a stream-only advisory endpoint for the legacy Next.js client.
 
 ---
 

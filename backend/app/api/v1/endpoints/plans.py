@@ -40,7 +40,7 @@ from pydantic import BaseModel
 
 from app.core.database import get_session
 from app.schemas.plan import PlanRequest
-from app.services.ai.planner import generate_plan, generate_followup
+from app.services.ai.planner import generate_plan, generate_followup, refine_plan
 from app.services.plan_service import (
     create_plan,
     update_plan_text,
@@ -172,11 +172,12 @@ class ChatRequest(BaseModel):
     plan_text: str = ""
 
 
-@router.post("/chat", summary="Follow-up chat on an existing plan (streaming)")
+@router.post("/chat", summary="Follow-up chat (streaming, advisory only)")
 async def chat_followup(request: ChatRequest):
     """
-    Handle follow-up messages after a plan is generated.
-    E.g. "make it more romantic", "switch to Italian cuisine".
+    Streaming advisory reply — never changes the plan. Kept for the legacy
+    Next.js client; demo.html uses POST /plans/refine instead, which can
+    also apply the change.
     """
 
     async def event_stream():
@@ -192,6 +193,28 @@ async def chat_followup(request: ChatRequest):
         event_stream(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/refine", summary="Follow-up: answer a question OR change the plan")
+async def refine(request: ChatRequest):
+    """
+    Classify a follow-up message and act on it.
+
+    Returns JSON:
+      { "action": "answer", "reply": "<specific answer>", "patch": {} }
+      { "action": "modify", "reply": "<what's changing>",
+        "patch": { <PlanRequest field overrides> } }
+
+    On "modify" the frontend merges `patch` into the stored request and
+    re-runs POST /plans/generate to swap in a new plan. `patch` is already
+    sanitised server-side (only refinable fields, values clamped to range).
+    """
+    return await refine_plan(
+        user_message=request.user_message,
+        conversation_history=request.conversation_history,
+        event_data=request.event_data,
+        plan_text=request.plan_text,
     )
 
 

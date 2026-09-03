@@ -33,7 +33,8 @@ restaurant cards for the picker. No Claude call, ~300 ms.
 | Method | Path | Notes |
 |---|---|---|
 | `POST` | `/plans/generate` | SSE stream. Body is a `PlanRequest` (SearchRequest fields + optional `selected_dineout` / `selected_food` — the full restaurant object the user picked). First frame `data: PLAN_ID:<uuid>`, then one frame with the whole plan (newlines encoded as `⏎`), then `data: [DONE]`. Persists a `Plan` (and a fresh `Event`) to Postgres. |
-| `POST` | `/plans/chat` | SSE stream. Body `{ user_message, event_data, conversation_history }`. Token-by-token follow-up reply. |
+| `POST` | `/plans/refine` | JSON. Body `{ user_message, event_data, plan_text, conversation_history }`. Classifies the message: `{"action":"answer","reply":"…","patch":{}}` for a question, or `{"action":"modify","reply":"…","patch":{<PlanRequest field overrides>}}` for a change. On `modify` the client merges `patch` into the request and re-runs `/plans/generate`. `patch` is sanitised server-side (only `notes`/`budget`/`guest_count`/`dietary_tags`/`alcohol_preference`/`venue_mode`/`health_focus`/`start_hour`, values clamped). |
+| `POST` | `/plans/chat` | SSE stream, **advisory only** (never changes the plan). Kept for the legacy Next.js client; `demo.html` uses `/plans/refine`. |
 | `GET`  | `/plans/{plan_id}` | The saved plan. |
 | `GET`  | `/plans/event/{event_id}` | All plans for an event (newest first). |
 | `GET`  | `/plans/history` | 20 most recent `ready` plans for the demo user. |

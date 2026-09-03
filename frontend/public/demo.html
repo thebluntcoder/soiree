@@ -2363,7 +2363,7 @@ function renderPlan(plan) {
     <div class="chat-msgs" id="chatMsgs"></div>
     <div class="chat-input-wrap">
       <input type="text" class="chat-inp" id="chatInp"
-        placeholder="Ask anything — 'more romantic', 'switch to Italian'..."
+        placeholder="Ask a question, or change the plan — 'lower the budget', 'switch to Italian'…"
         onkeydown="if(event.key==='Enter')sendChat()">
       <button class="chat-send" id="chatSend" onclick="sendChat()">↑</button>
     </div>
@@ -2459,7 +2459,7 @@ function backToForm() {
   S.selectedFood = null;
 }
 
-async function runGeneration(req) {
+async function runGeneration(req, opts = {}) {
   const btn = document.getElementById('planCta');
   btn.disabled = true;
   btn.innerHTML = '<span class="cta-spinner"></span> ORCHESTRATING...';
@@ -2515,9 +2515,10 @@ async function runGeneration(req) {
 
     // Keep the plain-text plan around so follow-up chat can be grounded in it.
     S.planText = acc.split('⏎').join('\n').replace(/^data:\s*/gm, '');
-    S.chatMsgs = [];
+    if (!opts.keepChat) S.chatMsgs = [];
     const plan = parse(acc);
     renderPlan(plan);
+    if (opts.keepChat) restoreChat();
 
   } catch(e) {
     stopSteps();
@@ -2591,6 +2592,18 @@ function updateMsg(id, text) {
 }
 
 
+// Rebuild the chat panel from S.chatMsgs — used after renderPlan() wipes it
+// during a chat-triggered regeneration.
+function restoreChat() {
+  const c = document.getElementById('chatMsgs');
+  if (!c) return;
+  c.innerHTML = '';
+  for (const m of S.chatMsgs) {
+    const id = appendMsg(m.role === 'user' ? 'user' : 'ai', '');
+    updateMsg(id, m.content);
+  }
+}
+
 async function sendChat() {
   const inp = document.getElementById('chatInp');
   const msg = inp.value.trim();
@@ -2602,10 +2615,11 @@ async function sendChat() {
 
   const typingId = appendMsg('ai', null, true);
   S.streaming = true;
-  document.getElementById('chatSend').disabled = true;
+  const sendBtn = document.getElementById('chatSend');
+  if (sendBtn) sendBtn.disabled = true;
 
   try {
-  const chatResponse = await fetch(`${API_BASE}/api/v1/plans/chat`, {
+    const r = await fetch(`${API_BASE}/api/v1/plans/refine`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2615,38 +2629,35 @@ async function sendChat() {
         plan_text: S.planText || '',
       }),
     });
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json();
 
-    const reader = chatResponse.body.getReader();
-    const dec = new TextDecoder('utf-8');
-    let buf = '', reply = '', ended = false;
+    const isModify = d.action === 'modify'
+      && d.patch && Object.keys(d.patch).length > 0
+      && S.lastReq;
 
-    while (!ended) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      const parts = buf.split('\n\n');
-      buf = parts.pop() ?? '';
-      for (const part of parts) {
-        const lines = part.split('\n').filter(l => l.startsWith('data:'));
-        if (!lines.length) continue;
-        let content = lines.map(l => l.replace(/^data: ?/, '')).join('\n');
-        if (content.trim() === '[DONE]') { ended = true; break; }
-        if (content.startsWith('[ERROR]')) throw new Error(content.slice(8));
-        // decode ⏎ → newline AFTER the sentinel checks; append verbatim so
-        // spaces between streamed tokens survive.
-        reply += content.replace(/⏎/g, '\n');
-        updateMsg(typingId, reply);
-      }
+    if (isModify) {
+      const note = `✨ ${d.reply}`;
+      updateMsg(typingId, note + '\n\n_Rebuilding your plan…_');
+      S.chatMsgs.push({ role: 'assistant', content: note });
+      // apply the change; drop any prior explicit picks so the new plan re-chooses
+      S.lastReq = {
+        ...S.lastReq, ...d.patch,
+        selected_dineout: null, selected_food: null,
+        selected_dineout_id: null, selected_food_restaurant_id: null,
+      };
+      await runGeneration(S.lastReq, { keepChat: true });
+    } else {
+      updateMsg(typingId, d.reply || "I'm not sure how to help with that — try rephrasing.");
+      S.chatMsgs.push({ role: 'assistant', content: d.reply || '' });
     }
-
-    reader.releaseLock();
-    S.chatMsgs.push({ role: 'assistant', content: reply });
 
   } catch(e) {
     updateMsg(typingId, 'Something went wrong. Please try again.');
   } finally {
     S.streaming = false;
-    document.getElementById('chatSend').disabled = false;
+    const b = document.getElementById('chatSend');
+    if (b) b.disabled = false;
   }
 }
 

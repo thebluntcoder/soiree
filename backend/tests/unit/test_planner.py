@@ -20,6 +20,7 @@ WHAT WE TEST:
 import json
 import pytest
 from app.services.ai.prompts import build_system_prompt, build_user_prompt
+from app.services.ai.planner import _sanitize_patch
 
 
 class TestSystemPrompt:
@@ -301,3 +302,52 @@ class TestUserPromptSelection:
         }
         prompt = build_user_prompt(event, sample_mcp_context, sample_offers)
         assert "No alcohol" in prompt
+
+
+class TestSanitizePatch:
+    """
+    _sanitize_patch guards the chat "refine" path — the model proposes a
+    patch, this keeps only refinable fields and clamps values to the
+    PlanRequest ranges before it's merged and regenerated.
+    """
+
+    def test_keeps_only_refinable_fields(self):
+        out = _sanitize_patch(
+            {"budget": 2000, "event_type": "birthday", "location": "Delhi", "foo": 1}
+        )
+        assert out == {"budget": 2000}
+
+    def test_clamps_numbers_to_range(self):
+        out = _sanitize_patch(
+            {"budget": 999999, "guest_count": 0, "health_focus": -5, "start_hour": 30}
+        )
+        assert out == {
+            "budget": 50000,
+            "guest_count": 1,
+            "health_focus": 0,
+            "start_hour": 23,
+        }
+
+    def test_coerces_string_numbers(self):
+        assert _sanitize_patch({"guest_count": "3"}) == {"guest_count": 3}
+
+    def test_drops_bad_enums(self):
+        assert _sanitize_patch(
+            {"venue_mode": "teleport", "alcohol_preference": "maybe"}
+        ) == {}
+        assert _sanitize_patch(
+            {"venue_mode": "home", "alcohol_preference": "no"}
+        ) == {"venue_mode": "home", "alcohol_preference": "no"}
+
+    def test_dietary_tags_must_be_list(self):
+        assert _sanitize_patch({"dietary_tags": "Vegan"}) == {}
+        assert _sanitize_patch({"dietary_tags": ["Vegan", "", "Jain"]}) == {
+            "dietary_tags": ["Vegan", "Jain"]
+        }
+
+    def test_notes_truncated(self):
+        out = _sanitize_patch({"notes": "x" * 900})
+        assert len(out["notes"]) == 500
+
+    def test_drops_none_values(self):
+        assert _sanitize_patch({"budget": None, "notes": None}) == {}
