@@ -167,6 +167,9 @@ class ChatRequest(BaseModel):
     user_message: str
     event_data: dict = {}
     conversation_history: list[dict] = []
+    # The generated plan text (newlines decoded) — grounds the reply so
+    # "switch to Italian" is understood as cuisine, not a language request.
+    plan_text: str = ""
 
 
 @router.post("/chat", summary="Follow-up chat on an existing plan (streaming)")
@@ -181,6 +184,7 @@ async def chat_followup(request: ChatRequest):
             user_message=request.user_message,
             conversation_history=request.conversation_history,
             event_data=request.event_data,
+            plan_text=request.plan_text,
         ):
             yield chunk
 

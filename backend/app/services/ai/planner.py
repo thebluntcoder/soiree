@@ -187,38 +187,53 @@ async def generate_followup(
     user_message: str,
     conversation_history: list[dict],
     event_data: dict[str, Any],
+    plan_text: str = "",
 ) -> AsyncIterator[str]:
     """
     Handle follow-up chat messages after the initial plan is generated.
 
-    CONCEPT: Multi-turn conversation
-    ----------------------------------
-    After the plan is shown, the user can ask follow-up questions:
-    "make it more romantic", "switch to Italian", "we added a vegan guest"
+    CONCEPT: Multi-turn conversation, grounded in the plan
+    ------------------------------------------------------
+    After the plan is shown the user asks things like "make it more
+    romantic", "switch to Italian", "we added a vegan guest". These only
+    make sense relative to THIS plan, so the full generated plan text is
+    injected into the system prompt — without it, Claude has no idea
+    "Italian" means cuisine and gives nonsense ("I only respond in English").
 
-    We maintain conversation_history (list of {role, content} dicts) and
-    send the full history with each follow-up. Claude uses this context
-    to give coherent answers without the user re-explaining everything.
-
-    We use stream() here (unlike generate_plan) because follow-up replies
-    are short conversational text — no section markers to fragment, so
-    token-by-token streaming is fine and gives a better typing effect.
+    The chat is advisory: it cannot mutate the saved plan. It gives concrete
+    tweaks using the restaurants/items already in the plan, and for
+    structural changes points the user back to the form.
 
     Args:
         user_message: the follow-up question or instruction
         conversation_history: previous {role, content} dicts from this session
-        event_data: original event config for context
+        event_data: original event config (event_type, location, …)
+        plan_text: the generated plan, newlines decoded — the grounding
 
     Yields:
-        SSE-formatted text chunks, then "data: [DONE]\n\n"
+        SSE frames. Newlines in a chunk are encoded as ⏎ (the frontend
+        decodes them) so they never fragment the SSE framing.
+        Terminates with "data: [DONE]\n\n".
     """
     client, _, _ = _get_clients()
 
-    system = f"""You are Soirée, a life events concierge. You've already generated a plan for a {event_data.get("event_type", "event")} in {event_data.get("location", "the user's city")}.
+    event_type = str(event_data.get("event_type", "event")).split(".")[-1]
+    location = event_data.get("location") or "the user's city"
+    plan_block = plan_text.strip() or "(plan text unavailable — use the conversation so far)"
 
-Answer follow-up questions helpfully and specifically. Keep responses concise (under 150 words).
-If asked to regenerate the plan, tell the user to use the regenerate button.
-Never invent new restaurant names or prices — refer only to what was in the original plan."""
+    system = f"""You are Soirée, a warm, precise life-events concierge. The user already has the plan below for a {event_type} in {location} and is asking follow-up questions about it.
+
+THE CURRENT PLAN
+────────────────
+{plan_block}
+────────────────
+
+How to respond:
+- Every message is about THIS plan. "Switch to Italian" = Italian cuisine; "more romantic" = adjust this evening's vibe; "we added a vegan guest" = adapt the food. Never read these as language or unrelated requests.
+- You cannot edit the plan yourself. For small tweaks (a dish swap, a timing change, what to ask the restaurant) give specific advice using the restaurants and items already in the plan above.
+- For structural changes (different cuisine, budget, city, guests, dietary needs) say in one line what you'd change, then tell the user to update those fields in the form on the left and generate a new plan.
+- Never invent restaurant names, dishes or prices — only what's in the plan above.
+- Under 120 words, plain and friendly."""
 
     messages = conversation_history + [{"role": "user", "content": user_message}]
 
@@ -230,7 +245,7 @@ Never invent new restaurant names or prices — refer only to what was in the or
             messages=messages,
         ) as stream:
             async for text in stream.text_stream:
-                yield f"data: {text}\n\n"
+                yield f"data: {text.replace(chr(10), '⏎')}\n\n"
         yield "data: [DONE]\n\n"
     except Exception as e:
         yield f"data: [ERROR] {str(e)}\n\n"

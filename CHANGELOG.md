@@ -41,6 +41,13 @@ _Nothing yet._
   cost lines; system prompt tightened to ask for the clean format.
 - Hardcoded `Access-Control-Allow-Origin: *` removed from the SSE response
   — `CORSMiddleware` handles it (and `*` is invalid with credentials).
+- **Follow-up chat.** The generated plan text is now sent into the chat's
+  system prompt, so "Switch to Italian" is understood as cuisine (it was
+  answering "I only respond in English") and every reply is grounded in the
+  real restaurants/items. Chat SSE now ⏎-encodes newlines and the frontend
+  appends chunks verbatim — fixes words jamming together and text vanishing
+  after a newline. Removed the "use the regenerate button" advice (there is
+  no such button). Chat history resets when a new plan is generated.
 
 ### Changed
 - MCP clients (`food`, `instamart`, `dineout`) now inherit one
