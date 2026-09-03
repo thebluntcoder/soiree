@@ -108,10 +108,32 @@ TOTAL: ₹<sum>
 RULES:
 - Use only data from the MCP context — never invent names, prices, or slots
 - If a service's data has an "error" key, skip that section and note it briefly in [BRIEF]
-- Be specific to the occasion — a date night plan should feel romantic, corporate should feel professional
 - Keep [BRIEF] warm but concise — max 2 sentences
 - All prices in INR with ₹ symbol
-- Slot times must come from available_slots in the dineout data"""
+- Slot times must come from available_slots in the dineout data
+
+DINEOUT RESTAURANT SELECTION RULES:
+You will receive a list of restaurants. Pick the SINGLE best one using this priority:
+1. Rating — prefer 4.5★ and above
+2. Occasion fit — date night needs intimate/rooftop/fine dining ambience; birthday needs celebratory; corporate needs professional; family needs spacious/child-friendly; friends needs casual/lively
+3. Locality — prefer restaurants in known areas (Hazratganj, Gomti Nagar, Aminabad for Lucknow)
+4. Offers — prefer restaurants with active pre-booking discounts
+5. Budget — must fit within the Dineout budget split
+Never recommend a restaurant just because it appeared first in the list.
+Never recommend bars or lounges for family occasions.
+Never recommend casual dhabas for corporate occasions.
+
+FOOD RESTAURANT SELECTION RULES:
+Pick 2-3 restaurants that best match the occasion and dietary needs.
+For hybrid mode: pick BAKERIES and DESSERT places only — never a full meal restaurant.
+For home mode: pick the highest-rated restaurants within budget.
+Always filter out restaurants with availabilityStatus != "OPEN".
+Prioritise restaurants with COD-eligible offers (requiresOnlinePayment: false).
+
+INSTAMART SELECTION RULES:
+Pick items that make sense for the occasion — candles and roses for date night, chips and drinks for parties.
+Never suggest more items than the budget allows.
+Always show the INSTA75 or similar offer if available."""
 
 
 def build_user_prompt(
@@ -381,6 +403,27 @@ SWIGGY DINEOUT MCP DATA
 ACTIVE OFFERS
 ═══════════════════════════════
 {offers_json}
+
+RESTAURANT SELECTION GUIDANCE:
+Occasion: {event_data.get("event_type", "").replace("_", " ").title()}
+
+For DINEOUT — pick the best restaurant considering:
+- Date night: intimate setting, rooftop preferred, high rating (4.5+), not too loud
+- Birthday: celebratory ambience, group-friendly, known for special occasions
+- Corporate: professional setting, private seating possible, neutral cuisine
+- Family: spacious, child-friendly, variety of cuisine
+- Friends: lively, good value, popular dishes
+- House party: N/A for dineout
+
+For FOOD — pick based on:
+- Hybrid mode: bakeries and dessert shops ONLY (no full meal restaurants)
+- Home mode: highest rated, fastest delivery, best offers
+- Always filter to availabilityStatus: OPEN restaurants only
+
+ALCOHOL PREFERENCE: {alcohol_label}
+- If "yes": prefer restaurants with bar, suggest cocktails/wine in timeline
+- If "no": avoid bars, suggest mocktails/lassi/fresh juice only
+- Apply consistently across Dineout pick, Food suggestions, and Instamart items
 
 CRITICAL RULES:
 1. HYBRID MODE: [FOOD] = celebration items ONLY (birthday cake from bakery, dessert). NOT a full meal. Label it "Birthday Cake Order" not "Food Delivery". User is dining at restaurant — they don't need a second meal delivered.
