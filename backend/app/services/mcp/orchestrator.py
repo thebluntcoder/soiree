@@ -312,6 +312,8 @@ class MCPOrchestrator:
         notes: str | None = None,
         alcohol_preference: str = "any",
         access_token: str | None = None,
+        refine: str | None = None,
+        search_offset: int = 0,
     ) -> dict[str, Any]:
         """
         Resolve addresses then fire all relevant MCP calls in parallel.
@@ -328,10 +330,14 @@ class MCPOrchestrator:
             lat/lng:            device GPS — improves Dineout accuracy
             notes:              free text — drives MCP search queries
             alcohol_preference: yes/no/any — filters restaurants and Instamart
+            refine:             picker free-text — overrides the food/dineout
+                                search query when set
+            search_offset:      pagination offset for the "show more" button
 
         Returns:
             {food, instamart, dineout, venue_mode, budget_split, coordinates}
         """
+        refine = (refine or "").strip() or None
         budget_split = self._calculate_budget_split(budget, venue_mode)
         address_id, saved_location = await self.resolve_addresses(
             location=location, access_token=access_token
@@ -348,7 +354,9 @@ class MCPOrchestrator:
         # home: full meal delivery
         # hybrid: celebration items only (cake from bakery, specific dishes)
         if venue_mode in ("home", "hybrid"):
-            food_query = _food_query(event_type, dietary_tags, notes, venue_mode)
+            food_query = refine or _food_query(
+                event_type, dietary_tags, notes, venue_mode
+            )
             tasks.append(
                 (
                     "food",
@@ -358,6 +366,7 @@ class MCPOrchestrator:
                         dietary_filters=dietary_tags,
                         budget_per_head=budget_split["food"] // max(guest_count, 1),
                         health_focus=health_focus,
+                        offset=search_offset,
                         access_token=access_token,
                     ),
                 )
@@ -387,8 +396,12 @@ class MCPOrchestrator:
         # ── Dineout reservations ──────────────────────────────────────
         # out + hybrid: restaurant search with alcohol preference
         if venue_mode in ("out", "hybrid"):
-            dineout_query = _dineout_query(
-                event_type, dietary_tags, alcohol_preference, notes
+            # Dineout's real API wants a single word — take the last word of
+            # a multi-word refine (usually the cuisine: "cosy italian" → italian).
+            dineout_query = (
+                refine.split()[-1]
+                if refine
+                else _dineout_query(event_type, dietary_tags, alcohol_preference, notes)
             )
             tasks.append(
                 (
@@ -405,6 +418,7 @@ class MCPOrchestrator:
                         else event_type,
                         budget_per_head=budget_split["dineout"] // max(guest_count, 1),
                         start_hour=int(start_hour),
+                        offset=search_offset,
                         access_token=access_token,
                     ),
                 )
@@ -420,6 +434,8 @@ class MCPOrchestrator:
         context["resolved_location"] = location
         context["coordinates"] = {"lat": dineout_lat, "lng": dineout_lng}
         context["alcohol_preference"] = alcohol_preference
+        context["refine"] = refine
+        context["search_offset"] = search_offset
 
         used_gps = bool(lat and lng)
 

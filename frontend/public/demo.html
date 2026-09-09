@@ -1831,6 +1831,14 @@ input[type=range]::-webkit-slider-thumb:hover {
 
       <div id="pickerLocWarning" style="display:none;margin-bottom:24px;padding:12px 16px;border:1px solid var(--amber-dim);border-left:2px solid var(--amber);border-radius:8px;background:var(--amber-dim);font-size:12px;color:var(--amber);line-height:1.6"></div>
 
+      <!-- Refine: don't like these? tell us what you want -->
+      <div style="display:flex;gap:8px;margin-bottom:28px">
+        <input type="text" class="chat-inp" id="pickerRefine"
+          placeholder="Not quite right? Try 'rooftop', 'Italian', 'quiet & fancy', a name…"
+          onkeydown="if(event.key==='Enter')refinePicker()" style="flex:1">
+        <button class="btn-sec" onclick="refinePicker()" id="pickerRefineBtn" style="white-space:nowrap">↻ &nbsp;Refine</button>
+      </div>
+
       <!-- Dineout options -->
       <div id="dineoutPicker" style="display:none;margin-bottom:32px">
         <div style="font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--gold);opacity:0.7;margin-bottom:14px;display:flex;align-items:center;gap:12px">
@@ -1838,6 +1846,7 @@ input[type=range]::-webkit-slider-thumb:hover {
           Dineout — Choose your restaurant
         </div>
         <div id="dineoutCards" style="display:flex;flex-direction:column;gap:10px"></div>
+        <button class="btn-sec" id="dineoutMore" onclick="morePickerOptions('dineout')" style="display:none;margin-top:10px;width:100%;justify-content:center">Show more options</button>
       </div>
 
       <!-- Food options -->
@@ -1847,6 +1856,7 @@ input[type=range]::-webkit-slider-thumb:hover {
           Food — Choose your restaurant
         </div>
         <div id="foodCards" style="display:flex;flex-direction:column;gap:10px"></div>
+        <button class="btn-sec" id="foodMore" onclick="morePickerOptions('food')" style="display:none;margin-top:10px;width:100%;justify-content:center">Show more options</button>
       </div>
 
       <!-- Generate button -->
@@ -2441,6 +2451,8 @@ async function generate() {
   };
 
   S.lastReq = req;
+  S.pickerRefine = '';
+  S.pickerOffset = 0;
 
   try {
     const searchHeaders = { 'Content-Type': 'application/json' };
@@ -2475,8 +2487,11 @@ async function generate() {
 function backToForm() {
   document.getElementById('pickerState').style.display = 'none';
   document.getElementById('emptyState').style.display = 'flex';
+  document.getElementById('pickerRefine').value = '';
   S.selectedDineout = null;
   S.selectedFood = null;
+  S.pickerRefine = '';
+  S.pickerOffset = 0;
 }
 
 async function runGeneration(req, opts = {}) {
@@ -2731,12 +2746,123 @@ function approveOrder() {
 S.selectedDineout = null;
 S.selectedFood = null;
 S.searchData = null;
+S.pickerRefine = '';
+S.pickerOffset = 0;
 
-function showPicker(data) {
-  S.searchData = data;
+function dcardHTML(r, i) {
+  return `
+    <div id="dcard-${i}" onclick="selectDineout(${i})" style="
+      padding:16px 20px;border:1px solid var(--border);border-radius:14px;
+      background:var(--surface);cursor:pointer;transition:all 0.2s;
+    ">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+        <span style="font-size:14px;font-weight:500;color:var(--text)">${r.name}</span>
+        ${r.cuisine ? `<span style="font-size:11px;color:var(--text3)">${r.cuisine}</span>` : ''}
+        ${r.rating ? `<span style="margin-left:auto;font-size:12px;color:var(--gold);font-family:'DM Mono',monospace">★ ${r.rating}</span>` : ''}
+      </div>
+      ${metaRow([
+        r.locality && '📍 ' + r.locality,
+        r.cost_for_two && '₹' + r.cost_for_two.toLocaleString('en-IN') + ' for 2',
+        r.distance_km != null && r.distance_km + ' km away',
+        r.ambience?.length && r.ambience.slice(0,2).join(' · '),
+      ])}
+      ${r.known_for?.length ? `<div style="font-size:11px;color:var(--text2);margin-bottom:8px">Known for: ${r.known_for.slice(0,3).join(', ')}</div>` : ''}
+      ${r.available_slots?.length ? `
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${r.available_slots.slice(0,4).map(s => `
+            <span style="padding:3px 10px;border:1px solid var(--border2);border-radius:20px;font-size:10px;color:var(--amber);font-family:'DM Mono',monospace">
+              ${typeof s === 'object' ? s.time : s}
+            </span>`).join('')}
+        </div>` : ''}
+      ${r.offers?.length ? `<div style="font-size:11px;color:var(--green2);margin-top:8px">🏷 ${r.offers[0].description}</div>` : ''}
+    </div>`;
+}
+
+function fcardHTML(r, i) {
+  return `
+    <div id="fcard-${i}" onclick="selectFood(${i})" style="
+      padding:16px 20px;border:1px solid var(--border);border-radius:14px;
+      background:var(--surface);cursor:pointer;transition:all 0.2s;
+      display:flex;gap:14px;align-items:flex-start;
+    ">
+      ${r.image_url ? `<img src="${r.image_url}" alt="" loading="lazy" style="width:56px;height:56px;border-radius:10px;object-fit:cover;flex-shrink:0" onerror="this.style.display='none'">` : ''}
+      <div style="flex:1;min-width:0">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        ${r.veg === true ? '<span style="color:var(--green2);font-size:10px">🟢</span>' : ''}
+        <span style="font-size:14px;font-weight:500;color:var(--text)">${r.name}</span>
+        ${r.sponsored ? '<span style="font-size:9px;letter-spacing:1px;color:var(--text4)">AD</span>' : ''}
+        ${r.cuisine ? `<span style="font-size:11px;color:var(--text3)">${r.cuisine}</span>` : ''}
+        ${r.rating ? `<span style="margin-left:auto;font-size:12px;color:var(--gold);font-family:'DM Mono',monospace">★ ${r.rating}</span>` : ''}
+      </div>
+      ${metaRow([
+        r.locality && '📍 ' + r.locality,
+        r.price_for_two && '₹' + r.price_for_two.toLocaleString('en-IN') + ' for 2',
+        r.delivery_time_range || (r.delivery_time_mins && r.delivery_time_mins + ' min'),
+        r.distance_km != null && r.distance_km + ' km away',
+      ])}
+      ${r.top_dishes?.length ? `
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+          ${r.top_dishes.slice(0,3).map(d => `
+            <span style="padding:3px 10px;border:1px solid var(--border2);border-radius:20px;font-size:10px;color:var(--text2)">${d.name} ₹${d.price}</span>`).join('')}
+        </div>` : ''}
+      ${r.offers?.length ? `<div style="font-size:11px;color:var(--green2)">🏷 ${r.offers[0].description}</div>` : ''}
+      </div>
+    </div>`;
+}
+
+function mergeById(existing, incoming) {
+  const seen = new Set(existing.map(r => r.id));
+  return existing.concat(incoming.filter(r => r.id && !seen.has(r.id)));
+}
+
+function markCard(prefix, idx) {
+  document.querySelectorAll(`[id^="${prefix}"]`).forEach(el => {
+    el.style.borderColor = 'var(--border)';
+    el.style.background = 'var(--surface)';
+  });
+  const el = idx != null && document.getElementById(`${prefix}${idx}`);
+  if (el) { el.style.borderColor = 'var(--gold-dim)'; el.style.background = 'var(--surface2)'; }
+}
+
+function renderPickerCards() {
+  const d = S.searchData || {};
+  const dw = document.getElementById('dineoutPicker');
+  const fw = document.getElementById('foodPicker');
+  if (d.dineout?.length) {
+    dw.style.display = 'block';
+    document.getElementById('dineoutCards').innerHTML = d.dineout.map(dcardHTML).join('');
+  } else { dw.style.display = 'none'; }
+  if (d.food?.length) {
+    fw.style.display = 'block';
+    document.getElementById('foodCards').innerHTML = d.food.map(fcardHTML).join('');
+  } else { fw.style.display = 'none'; }
+  document.getElementById('dineoutMore').style.display =
+    (d.dineout?.length && d.dineout_has_more && S.pickerOffset < 60) ? 'flex' : 'none';
+  document.getElementById('foodMore').style.display =
+    (d.food?.length && d.food_has_more && S.pickerOffset < 60) ? 'flex' : 'none';
+  // re-apply selection highlight (indices shift after "show more")
+  if (S.selectedDineout)
+    markCard('dcard-', (d.dineout || []).findIndex(r => r.id === S.selectedDineout.id));
+  if (S.selectedFood)
+    markCard('fcard-', (d.food || []).findIndex(r => r.id === S.selectedFood.id));
+}
+
+function showPicker(data, opts = {}) {
   S.addressUsed = data.address_used || null;
+  if (opts.append && S.searchData) {
+    S.searchData.dineout = mergeById(S.searchData.dineout || [], data.dineout || []);
+    S.searchData.food = mergeById(S.searchData.food || [], data.food || []);
+    S.searchData.dineout_has_more = data.dineout_has_more;
+    S.searchData.food_has_more = data.food_has_more;
+  } else {
+    S.searchData = data;
+    S.selectedDineout = null;
+    S.selectedFood = null;
+  }
   document.getElementById('pickerState').style.display = 'block';
   document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('genState').style.display = 'none';
+  document.getElementById('planContent').style.display = 'none';
 
   const warn = document.getElementById('pickerLocWarning');
   if (data.location_warning) {
@@ -2748,100 +2874,63 @@ function showPicker(data) {
   } else {
     warn.style.display = 'none';
   }
+  renderPickerCards();
+}
 
-  const dineoutSection = document.getElementById('dineoutPicker');
-  const foodSection = document.getElementById('foodPicker');
+async function fetchPickerOptions() {
+  const headers = { 'Content-Type': 'application/json' };
+  if (S.sessionId) headers['X-Session-ID'] = S.sessionId;
+  const r = await fetch(`${API_BASE}/api/v1/search/`, {
+    method: 'POST', headers,
+    body: JSON.stringify({
+      ...S.lastReq,
+      refine: S.pickerRefine || null,
+      offset: S.pickerOffset || 0,
+    }),
+  });
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
 
-  // Render Dineout cards
-  if (data.dineout?.length > 0) {
-    dineoutSection.style.display = 'block';
-    document.getElementById('dineoutCards').innerHTML = data.dineout.map((r, i) => `
-      <div id="dcard-${i}" onclick="selectDineout(${i})" style="
-        padding:16px 20px;border:1px solid var(--border);border-radius:14px;
-        background:var(--surface);cursor:pointer;transition:all 0.2s;
-      ">
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
-          <span style="font-size:14px;font-weight:500;color:var(--text)">${r.name}</span>
-          ${r.cuisine ? `<span style="font-size:11px;color:var(--text3)">${r.cuisine}</span>` : ''}
-          ${r.rating ? `<span style="margin-left:auto;font-size:12px;color:var(--gold);font-family:'DM Mono',monospace">★ ${r.rating}</span>` : ''}
-        </div>
-        ${metaRow([
-          r.locality && '📍 ' + r.locality,
-          r.cost_for_two && '₹' + r.cost_for_two.toLocaleString('en-IN') + ' for 2',
-          r.distance_km != null && r.distance_km + ' km away',
-          r.ambience?.length && r.ambience.slice(0,2).join(' · '),
-        ])}
-        ${r.known_for?.length ? `<div style="font-size:11px;color:var(--text2);margin-bottom:8px">Known for: ${r.known_for.slice(0,3).join(', ')}</div>` : ''}
-        ${r.available_slots?.length ? `
-          <div style="display:flex;gap:6px;flex-wrap:wrap">
-            ${r.available_slots.slice(0,4).map(s => `
-              <span style="padding:3px 10px;border:1px solid var(--border2);border-radius:20px;font-size:10px;color:var(--amber);font-family:'DM Mono',monospace">
-                ${typeof s === 'object' ? s.time : s}
-              </span>
-            `).join('')}
-          </div>
-        ` : ''}
-        ${r.offers?.length ? `<div style="font-size:11px;color:var(--green2);margin-top:8px">🏷 ${r.offers[0].description}</div>` : ''}
-      </div>
-    `).join('');
-  }
+async function refinePicker() {
+  const inp = document.getElementById('pickerRefine');
+  const btn = document.getElementById('pickerRefineBtn');
+  S.pickerRefine = inp.value.trim();
+  S.pickerOffset = 0;
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    const data = await fetchPickerOptions();
+    if (!(data.dineout?.length || data.food?.length)) {
+      inp.style.borderColor = 'var(--coral)';
+      setTimeout(() => inp.style.borderColor = '', 1500);
+    } else {
+      showPicker(data);
+    }
+  } catch(e) { /* keep current list */ }
+  finally { btn.disabled = false; btn.innerHTML = '↻ &nbsp;Refine'; }
+}
 
-  // Render Food cards
-  if (data.food?.length > 0) {
-    foodSection.style.display = 'block';
-    document.getElementById('foodCards').innerHTML = data.food.map((r, i) => `
-      <div id="fcard-${i}" onclick="selectFood(${i})" style="
-        padding:16px 20px;border:1px solid var(--border);border-radius:14px;
-        background:var(--surface);cursor:pointer;transition:all 0.2s;
-      ">
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
-          <span style="font-size:14px;font-weight:500;color:var(--text)">${r.name}</span>
-          <span style="font-size:11px;color:var(--text3)">${r.cuisine}</span>
-          <span style="margin-left:auto;font-size:12px;color:var(--gold);font-family:'DM Mono',monospace">★ ${r.rating}</span>
-        </div>
-        ${metaRow([
-          r.locality && '📍 ' + r.locality,
-          r.price_for_two && '₹' + r.price_for_two.toLocaleString('en-IN') + ' for 2',
-          r.delivery_time_mins && r.delivery_time_mins + ' min delivery',
-          r.distance_km != null && r.distance_km + ' km away',
-        ])}
-        ${r.top_dishes?.length ? `
-          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
-            ${r.top_dishes.slice(0,3).map(d => `
-              <span style="padding:3px 10px;border:1px solid var(--border2);border-radius:20px;font-size:10px;color:var(--text2)">
-                ${d.name} ₹${d.price}
-              </span>
-            `).join('')}
-          </div>
-        ` : ''}
-        ${r.offers?.length ? `<div style="font-size:11px;color:var(--green2)">🏷 ${r.offers[0].description}</div>` : ''}
-      </div>
-    `).join('');
+async function morePickerOptions(svc) {
+  const btn = document.getElementById(svc === 'dineout' ? 'dineoutMore' : 'foodMore');
+  S.pickerOffset = (S.pickerOffset || 0) + 10;
+  btn.disabled = true; btn.textContent = 'Loading…';
+  try {
+    showPicker(await fetchPickerOptions(), { append: true });
+  } catch(e) {
+    S.pickerOffset -= 10;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Show more options';
   }
 }
 
 function selectDineout(i) {
-  // Deselect all
-  document.querySelectorAll('[id^="dcard-"]').forEach(el => {
-    el.style.borderColor = 'var(--border)';
-    el.style.background = 'var(--surface)';
-  });
-  // Select chosen
-  const el = document.getElementById(`dcard-${i}`);
-  el.style.borderColor = 'var(--gold-dim)';
-  el.style.background = 'var(--surface2)';
   S.selectedDineout = S.searchData.dineout[i];
+  markCard('dcard-', i);
 }
 
 function selectFood(i) {
-  document.querySelectorAll('[id^="fcard-"]').forEach(el => {
-    el.style.borderColor = 'var(--border)';
-    el.style.background = 'var(--surface)';
-  });
-  const el = document.getElementById(`fcard-${i}`);
-  el.style.borderColor = 'var(--gold-dim)';
-  el.style.background = 'var(--surface2)';
   S.selectedFood = S.searchData.food[i];
+  markCard('fcard-', i);
 }
 
 async function generateFromSelection() {

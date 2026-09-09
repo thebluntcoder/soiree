@@ -121,6 +121,7 @@ class FoodMCPClient(BaseMCPClient):
         dietary_filters: list[str] | None = None,
         budget_per_head: int = 500,
         health_focus: int = 50,
+        offset: int = 0,
         access_token: str | None = None,
     ) -> dict[str, Any]:
         """
@@ -143,16 +144,17 @@ class FoodMCPClient(BaseMCPClient):
               - offers: active offers (check requiresOnlinePayment for COD eligibility)
               - availabilityStatus: only recommend "OPEN" restaurants
         """
+        params: dict[str, Any] = {
+            "addressId": address_id,
+            "query": query,
+            "dietary_filters": dietary_filters or [],
+            "budget_per_head": budget_per_head,
+            "health_focus": health_focus,
+        }
+        if offset:
+            params["offset"] = offset
         return await self._call_mcp(
-            "search_restaurants",
-            {
-                "addressId": address_id,
-                "query": query,
-                "dietary_filters": dietary_filters or [],
-                "budget_per_head": budget_per_head,
-                "health_focus": health_focus,
-            },
-            access_token=access_token,
+            "search_restaurants", params, access_token=access_token
         )
 
     async def get_restaurant_menu(self, restaurant_id: str) -> dict[str, Any]:

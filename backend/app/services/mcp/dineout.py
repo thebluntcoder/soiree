@@ -135,6 +135,7 @@ class DineoutMCPClient(BaseMCPClient):
         event_type: str = "date",
         budget_per_head: int = 1000,
         start_hour: int = 20,
+        offset: int = 0,
         access_token: str | None = None,
         address_id: str | None = None,
     ) -> dict[str, Any]:
@@ -158,14 +159,14 @@ class DineoutMCPClient(BaseMCPClient):
               - offers: active Dineout offers (pre-payment discounts etc.)
               - availability: only present "AVAILABLE" restaurants
         """
-        params = {
+        params: dict[str, Any] = {
             "query": query,
             "guestCount": guest_count,
-            # "dietary_filters": dietary_filters or [],
-            # "event_type": event_type,
-            # "budget_per_head": budget_per_head,
-            # "start_hour": start_hour,
+            # Dineout errors on unknown params — do NOT add dietary_filters,
+            # event_type, budget_per_head, start_hour here.
         }
+        if offset:
+            params["offset"] = offset
         # Use address_id if available (real API), otherwise lat/lng (mock)
         if address_id:
             params["addressId"] = address_id
@@ -211,13 +212,25 @@ class DineoutMCPClient(BaseMCPClient):
             },
         )
 
-    async def get_restaurant_details(self, restaurant_id: str) -> dict[str, Any]:
+    async def get_restaurant_details(
+        self,
+        restaurant_id: str,
+        lat: float | None = None,
+        lng: float | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, Any]:
         """
-        Fetch full restaurant details: ratings, amenities, photos, Dineout deals.
-        Used when the AI needs more context to write a compelling recommendation.
+        Fetch full restaurant details: cuisine, cost, ambience, amenities,
+        Dineout deals, slots. The real API wants the same lat/lng that the
+        `search_restaurants_dineout` response reported ("Search coordinates:
+        latitude=… longitude=…").
         """
+        params: dict[str, Any] = {"restaurantId": restaurant_id}
+        if lat is not None and lng is not None:
+            params["latitude"] = lat
+            params["longitude"] = lng
         return await self._call_mcp(
-            "get_restaurant_details", {"restaurantId": restaurant_id}
+            "get_restaurant_details", params, access_token=access_token
         )
 
     # -------------------------------------------------------------------------

@@ -35,21 +35,31 @@ records what's next. Roughly ordered by priority within each section.
 
 ## 2. Dineout result quality (handoff task #1)
 
-- [x] **Parse the real MCP text responses.** `parse_mcp.py` turns Swiggy's
-      text into the same `{"data": {"restaurants": [...]}}` shape the mock
-      emits — before this the picker only worked in mock mode; a real token
-      gave an unparsed envelope that `search.py` read as an empty list.
-- [x] **Rank + cap** the picker options (rating → MCP relevance → distance,
-      top 8). Selection rules in `build_system_prompt()` rewritten to lean
-      on rating + `locality` + occasion and made city-agnostic.
-- [x] Null-safe picker cards + `GET /search/_debug` (session-gated) that
-      returns the raw MCP text, to tune the parser against live output.
-- [ ] **Tune `parse_mcp.py` against a real `_debug` sample** — the regexes
-      are built from the documented format; confirm name/rating/locality/
-      id extraction on live Dineout + Food text, adjust, add fixtures.
-- [ ] `get_restaurant_details` for the top 2–3 dineout candidates — worth
-      doing **if** the real list turns out sparse (name + rating only);
-      fills in cuisine / ambience / amenities for the cards and the prompt.
+- [x] **Parse the real MCP responses.** Confirmed against live `_debug`:
+      Food packs a **JSON blob** in its text field (rich — cuisines, cost,
+      distance, delivery ETA, offer, image, veg); Dineout sends **numbered
+      text lines** that are sparse (name + rating + locality only) plus a
+      "Search coordinates" line. `parse_mcp.py` handles both and normalises
+      to the mock's `{"data": {"restaurants": [...]}}` shape. Before this
+      the picker was empty with a real token and the two-step flow silently
+      degraded to plan generation.
+- [x] Rank + cap (rating → MCP order → distance, top 8); drop 0★ / unrated
+      Dineout entries; strip "(Ad)"; city-agnostic selection rules.
+- [x] Picker cards enriched from the Food JSON (image, veg dot, cuisine,
+      delivery range) and null-safe for the sparse Dineout rows.
+- [x] `GET /search/_debug` — now also returns `get_restaurant_details` raw
+      for the top Dineout hit; `dineout_coordinates` on the `/search/`
+      response for downstream enrichment.
+- [x] **Picker refine + pagination.** `/search/` takes `refine` (free text —
+      overrides the derived query and boosts name/cuisine/locality matches)
+      and `offset`. The picker has a refine box ("Not quite right? try
+      'rooftop', 'Italian', a name…") and a "Show more options" button per
+      section (shown when Swiggy reports `hasMore`).
+- [ ] **Enrich the selected Dineout restaurant in `/plans/generate`** —
+      the Dineout list has no cuisine / ambience / slots, so `[DINEOUT]`
+      plans are thin. Call `get_restaurant_details(id, lat, lng)` for the
+      picked restaurant and fold cuisine / cost / ambience / slots into the
+      prompt. Needs the `restaurant_details` response format (next `_debug`).
 
 ## 3. Production readiness (before any public launch)
 

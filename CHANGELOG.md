@@ -9,18 +9,31 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 - **The restaurant picker now works with a real Swiggy token (TODO §2).**
-  Real Swiggy MCP returns human-readable *text*; `search.py` expected JSON,
-  so a real token gave an empty picker and the two-step flow silently
-  skipped straight to plan generation. New `services/mcp/parse_mcp.py`
-  turns the text into the mock's `{"data": {"restaurants": […]}}` shape.
-  Picker options are ranked (rating → Swiggy relevance → distance) and
-  capped at 8; cards render null-safe (real rows may only carry name +
-  rating + locality). The Dineout selection rules in the system prompt
-  were rewritten to lean on rating + locality + occasion-fit and made
+  `search.py` expected JSON from every MCP tool, but the real responses
+  don't come that way — so a real token gave an empty picker and the
+  two-step flow silently skipped to plan generation, where Claude picked
+  from a raw blob. New `services/mcp/parse_mcp.py` normalises both real
+  shapes (checked against live `_debug` output) into the mock's
+  `{"data": {"restaurants": […]}}`:
+  - **Food** — a JSON object inside the text field (rich: cuisines, cost,
+    distance, delivery ETA, offer, image, veg). Picker cards now show the
+    image, a veg dot and the delivery range.
+  - **Dineout** — numbered text lines, sparse (name + rating + locality),
+    plus a "Search coordinates" line (kept for `get_restaurant_details`).
+    0★ / unrated entries dropped, "(Ad)" stripped.
+  Options are ranked (rating → Swiggy order → distance) and capped at 8;
+  cards render only the fields that exist. Dineout selection rules in the
+  system prompt rewritten to lean on rating + locality + occasion and made
   city-agnostic. `GET /search/_debug` (session-gated) dumps the raw MCP
-  text for tuning the parser.
+  text + `get_restaurant_details` for tuning the parser.
 
 ### Added
+- **Picker: refine + "show more" (TODO §2).** If none of the first
+  restaurants fit, you can now type what you want ("rooftop", "Italian",
+  "quiet & fancy", a name) and re-search, or page through more options.
+  `POST /search/` takes `refine` (free text — replaces the derived query
+  and boosts name/cuisine/locality matches) and `offset`; the parser
+  reports `hasMore` so the button only shows when there's more.
 - **Address matching, part 2 (TODO §1).** The typed location now also
   resolves ~90 well-known neighbourhoods to their city (Koramangala →
   Bengaluru, Bandra → Mumbai, Hazratganj → Lucknow, DLF Cyber City →
