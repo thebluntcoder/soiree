@@ -259,6 +259,8 @@ Do NOT suggest alternatives.
         if location_warning
         else ""
     )
+    address_used = mcp_context.get("address_used")
+    address_line = f"\nSearched from: {address_used}" if address_used else ""
 
     return f"""Plan this event using ONLY the Swiggy MCP data provided below.
 
@@ -267,7 +269,7 @@ EVENT DETAILS
 ═══════════════════════════════
 Occasion:     {event_data.get("event_type", "").replace("_", " ").title()}
 Venue mode:   {venue_label}
-Location:     {event_data.get("location", "")}
+Location:     {event_data.get("location", "")}{address_line}
 Start time:   {start_time}
 Guests:       {guest_summary}
 Dietary:      {dietary_summary}
