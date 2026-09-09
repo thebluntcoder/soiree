@@ -2171,6 +2171,16 @@ function parseTimeline(raw) {
     .filter(s => s.title);
 }
 
+// Compact "· "-free meta row for picker cards — drops empty/false entries so
+// real Swiggy data (which may only have name + rating + locality) looks clean.
+function metaRow(items) {
+  const parts = items.filter(Boolean);
+  if (!parts.length) return '';
+  return `<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--text3);margin-bottom:8px">${
+    parts.map(p => `<span>${p}</span>`).join('')
+  }</div>`;
+}
+
 function extractCostVal(sectionText) {
   // Dineout/Food use "COST: ₹X", Instamart uses "ESTIMATED TOTAL: ₹X"
   const match = sectionText.match(/(?:COST|ESTIMATED TOTAL):\s*₹([\d,]+)/);
@@ -2752,14 +2762,15 @@ function showPicker(data) {
       ">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
           <span style="font-size:14px;font-weight:500;color:var(--text)">${r.name}</span>
-          <span style="font-size:11px;color:var(--text3)">${r.cuisine}</span>
-          <span style="margin-left:auto;font-size:12px;color:var(--gold);font-family:'DM Mono',monospace">★ ${r.rating}</span>
+          ${r.cuisine ? `<span style="font-size:11px;color:var(--text3)">${r.cuisine}</span>` : ''}
+          ${r.rating ? `<span style="margin-left:auto;font-size:12px;color:var(--gold);font-family:'DM Mono',monospace">★ ${r.rating}</span>` : ''}
         </div>
-        <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--text3);margin-bottom:8px">
-          <span>₹${r.cost_for_two?.toLocaleString('en-IN')} for 2</span>
-          <span>${r.distance_km} km away</span>
-          ${r.ambience?.length ? `<span>${r.ambience.slice(0,2).join(' · ')}</span>` : ''}
-        </div>
+        ${metaRow([
+          r.locality && '📍 ' + r.locality,
+          r.cost_for_two && '₹' + r.cost_for_two.toLocaleString('en-IN') + ' for 2',
+          r.distance_km != null && r.distance_km + ' km away',
+          r.ambience?.length && r.ambience.slice(0,2).join(' · '),
+        ])}
         ${r.known_for?.length ? `<div style="font-size:11px;color:var(--text2);margin-bottom:8px">Known for: ${r.known_for.slice(0,3).join(', ')}</div>` : ''}
         ${r.available_slots?.length ? `
           <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -2788,11 +2799,12 @@ function showPicker(data) {
           <span style="font-size:11px;color:var(--text3)">${r.cuisine}</span>
           <span style="margin-left:auto;font-size:12px;color:var(--gold);font-family:'DM Mono',monospace">★ ${r.rating}</span>
         </div>
-        <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--text3);margin-bottom:8px">
-          <span>₹${r.price_for_two?.toLocaleString('en-IN')} for 2</span>
-          <span>${r.delivery_time_mins} min delivery</span>
-          <span>${r.distance_km} km away</span>
-        </div>
+        ${metaRow([
+          r.locality && '📍 ' + r.locality,
+          r.price_for_two && '₹' + r.price_for_two.toLocaleString('en-IN') + ' for 2',
+          r.delivery_time_mins && r.delivery_time_mins + ' min delivery',
+          r.distance_km != null && r.distance_km + ' km away',
+        ])}
         ${r.top_dishes?.length ? `
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
             ${r.top_dishes.slice(0,3).map(d => `

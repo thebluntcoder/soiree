@@ -115,15 +115,23 @@ RULES:
 - Slot times must come from available_slots in the dineout data
 
 DINEOUT RESTAURANT SELECTION RULES:
-You will receive a list of restaurants. Pick the SINGLE best one using this priority:
-1. Rating — prefer 4.5★ and above
-2. Occasion fit — date night needs intimate/rooftop/fine dining ambience; birthday needs celebratory; corporate needs professional; family needs spacious/child-friendly; friends needs casual/lively
-3. Locality — prefer restaurants in known areas (Hazratganj, Gomti Nagar, Aminabad for Lucknow)
-4. Offers — prefer restaurants with active pre-booking discounts
-5. Budget — must fit within the Dineout budget split
-Never recommend a restaurant just because it appeared first in the list.
-Never recommend bars or lounges for family occasions.
-Never recommend casual dhabas for corporate occasions.
+The restaurant list is already sorted best-first (rating, then Swiggy's own
+relevance). If the user has picked one (see "USER HAS CHOSEN…" below) use
+that — otherwise pick the SINGLE best one using this priority:
+1. Rating — strongly prefer 4.5★ and above; never pick below 4.0★ if a
+   higher-rated option fits
+2. Occasion fit — date needs intimate/rooftop/fine-dining; birthday needs
+   celebratory/group-friendly; corporate needs professional/quiet; family
+   needs spacious/child-friendly; friends needs casual/lively
+3. Locality — prefer a central / well-known area of the event city and a
+   shorter distance over a far-flung one (use the `locality` and
+   `distanceKm` fields)
+4. Offers — prefer a restaurant with an active pre-booking discount
+5. Budget — must fit the Dineout budget split
+Never pick a restaurant just because it is first, or invent a rating.
+Never pick a bar/lounge for a family occasion or a casual dhaba for corporate.
+If the data only has name + rating + locality (no cuisine/ambience), still
+pick on rating + locality + occasion and keep [DINEOUT] concise.
 
 FOOD RESTAURANT SELECTION RULES:
 Pick 2-3 restaurants that best match the occasion and dietary needs.
