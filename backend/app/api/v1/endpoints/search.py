@@ -42,15 +42,20 @@ def get_orchestrator() -> MCPOrchestrator:
     return _orchestrator
 
 
-def _rank_key(r: dict):
+def _rank_key(r: dict, refine_terms: set[str] | None = None):
     """
-    Sort restaurants best-first: highest rating, then whatever the MCP
-    returned first (its own relevance order), then nearest.
+    Sort restaurants best-first: refine-text matches, then highest rating,
+    then the MCP's own relevance order, then nearest.
     """
-    rating = r.get("rating") or r.get("_rank_rating") or 0
+    hay = " ".join(
+        str(r.get(k, "")).lower()
+        for k in ("name", "cuisine", "locality")
+    )
+    matches = -sum(1 for t in (refine_terms or set()) if t in hay)
+    rating = r.get("rating") or 0
     original = r.get("_rank", 999)
     distance = r.get("distance_km") or r.get("distanceKm") or 999
-    return (-float(rating), original, float(distance))
+    return (matches, -float(rating), original, float(distance))
 
 
 @router.post("/", summary="Discover restaurant options before plan generation")
@@ -94,7 +99,20 @@ async def search_restaurants(
         notes=request.notes,
         alcohol_preference=request.alcohol_preference,
         access_token=access_token,
+        refine=request.refine,
+        search_offset=request.offset,
     )
+
+    refine_terms = {
+        w for w in (request.refine or "").lower().split() if len(w) > 2
+    }
+
+    def rank(rows: list[dict]) -> list[dict]:
+        rows.sort(key=lambda r: _rank_key(r, refine_terms))
+        return [
+            {k: v for k, v in r.items() if k != "_rank"}
+            for r in rows[:_MAX_OPTIONS]
+        ]
 
     # Extract and format restaurant options for the picker UI
     dineout_options = []
@@ -123,11 +141,7 @@ async def search_restaurants(
                     "_rank": r.get("_rank", 999),
                 }
             )
-        dineout_options.sort(key=_rank_key)
-        dineout_options = [
-            {k: v for k, v in r.items() if k != "_rank"}
-            for r in dineout_options[:_MAX_OPTIONS]
-        ]
+        dineout_options = rank(dineout_options)
 
     # Food restaurants
     if context.get("food") and "error" not in context["food"]:
@@ -155,24 +169,24 @@ async def search_restaurants(
                     "_rank": r.get("_rank", 999),
                 }
             )
-        food_options.sort(key=_rank_key)
-        food_options = [
-            {k: v for k, v in r.items() if k != "_rank"}
-            for r in food_options[:_MAX_OPTIONS]
-        ]
+        food_options = rank(food_options)
 
-    dineout_ctx = context.get("dineout") or {}
-    dineout_coords = (
-        dineout_ctx.get("data", {}).get("coordinates")
-        if isinstance(dineout_ctx, dict)
-        else None
-    )
+    def _data(svc: str) -> dict:
+        ctx = context.get(svc) or {}
+        return ctx.get("data", {}) if isinstance(ctx, dict) else {}
+
+    dineout_data = _data("dineout")
 
     return {
         "dineout": dineout_options,
         "food": food_options,
         "venue_mode": request.venue_mode,
         "budget_split": context.get("budget_split", {}),
+        "refine": request.refine,
+        "offset": request.offset,
+        # More pages available from Swiggy for the "show more options" button.
+        "dineout_has_more": bool(dineout_data.get("hasMore")),
+        "food_has_more": bool(_data("food").get("hasMore")),
         # Set when the typed city has no matching saved Swiggy address —
         # the picker shows results for the user's default address instead.
         "location_warning": context.get("location_warning"),
@@ -180,7 +194,7 @@ async def search_restaurants(
         # (only when authenticated). null in demo/mock mode.
         "address_used": context.get("address_used"),
         # Search coords Swiggy Dineout reported — needed for get_restaurant_details.
-        "dineout_coordinates": dineout_coords,
+        "dineout_coordinates": dineout_data.get("coordinates"),
     }
 
 

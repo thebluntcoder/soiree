@@ -91,6 +91,21 @@ class SearchRequest(BaseModel):
     lat: Optional[float] = Field(default=None)
     lng: Optional[float] = Field(default=None)
 
+    # Picker refinement — the user didn't like the first list.
+    refine: Optional[str] = Field(
+        default=None,
+        max_length=120,
+        description="Free text: what kind of restaurant to look for "
+        "(cuisine, vibe, name). Overrides the derived search query and "
+        "boosts matching results.",
+    )
+    offset: int = Field(
+        default=0,
+        ge=0,
+        le=90,
+        description="Pagination offset for the 'show more options' button.",
+    )
+
 
 class PlanRequest(BaseModel):
     """

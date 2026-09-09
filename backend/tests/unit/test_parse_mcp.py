@@ -76,6 +76,11 @@ class TestFoodJson:
     def test_source_tag(self):
         assert parse_restaurant_list(FOOD)["data"]["source"] == "swiggy-food-json"
 
+    def test_has_more_from_total(self):
+        d = parse_restaurant_list(FOOD)["data"]
+        assert d["hasMore"] is True  # totalRestaurants 236 > 2 shown
+        assert d["totalResults"] == 236
+
     def test_area_name_question_marks_cleaned(self):
         env = _env('{"restaurants":[{"id":"1","name":"X","areaName":"emerald?mall?lucknow"}]}')
         assert parse_restaurant_list(env)["data"]["restaurants"][0]["locality"] == (
@@ -113,6 +118,11 @@ class TestDineoutText:
 
     def test_source_tag(self):
         assert parse_restaurant_list(DINEOUT)["data"]["source"] == "swiggy-dineout-text"
+
+    def test_has_more_and_total_from_header(self):
+        d = parse_restaurant_list(DINEOUT)["data"]
+        assert d["totalResults"] == 39  # "Found 39 restaurant(s)"
+        assert d["hasMore"] is True     # "29 more available"
 
     def test_original_order_kept_as_rank(self):
         rows = parse_restaurant_list(DINEOUT)["data"]["restaurants"]

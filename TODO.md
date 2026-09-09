@@ -50,6 +50,11 @@ records what's next. Roughly ordered by priority within each section.
 - [x] `GET /search/_debug` — now also returns `get_restaurant_details` raw
       for the top Dineout hit; `dineout_coordinates` on the `/search/`
       response for downstream enrichment.
+- [x] **Picker refine + pagination.** `/search/` takes `refine` (free text —
+      overrides the derived query and boosts name/cuisine/locality matches)
+      and `offset`. The picker has a refine box ("Not quite right? try
+      'rooftop', 'Italian', a name…") and a "Show more options" button per
+      section (shown when Swiggy reports `hasMore`).
 - [ ] **Enrich the selected Dineout restaurant in `/plans/generate`** —
       the Dineout list has no cuisine / ambience / slots, so `[DINEOUT]`
       plans are thin. Call `get_restaurant_details(id, lat, lng)` for the

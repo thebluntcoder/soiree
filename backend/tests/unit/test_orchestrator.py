@@ -197,6 +197,26 @@ class TestGatherContext:
         orchestrator.dineout.search_restaurants.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_refine_overrides_query_and_offset_threads(self):
+        """Picker refine text replaces the derived query; offset is passed on."""
+        orch = MCPOrchestrator()
+        orch.food.search_restaurants = AsyncMock(return_value={"restaurants": []})
+        orch.instamart.search_products = AsyncMock(return_value={"categories": []})
+        orch.dineout.search_restaurants = AsyncMock(return_value={"restaurants": []})
+
+        await orch.gather_context(
+            location="Lucknow", event_type="date", venue_mode="hybrid",
+            dietary_tags=[], guest_count=2, budget=3000, start_hour=20,
+            refine="cosy italian", search_offset=10,
+        )
+
+        fkw = orch.food.search_restaurants.call_args.kwargs
+        dkw = orch.dineout.search_restaurants.call_args.kwargs
+        assert fkw["query"] == "cosy italian"       # food takes the phrase
+        assert dkw["query"] == "italian"            # dineout takes the last word
+        assert fkw["offset"] == 10 and dkw["offset"] == 10
+
+    @pytest.mark.asyncio
     async def test_context_contains_venue_mode(self):
         """Returned context must include venue_mode for downstream use."""
         orchestrator = MCPOrchestrator()

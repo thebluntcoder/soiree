@@ -28,6 +28,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   text + `get_restaurant_details` for tuning the parser.
 
 ### Added
+- **Picker: refine + "show more" (TODO §2).** If none of the first
+  restaurants fit, you can now type what you want ("rooftop", "Italian",
+  "quiet & fancy", a name) and re-search, or page through more options.
+  `POST /search/` takes `refine` (free text — replaces the derived query
+  and boosts name/cuisine/locality matches) and `offset`; the parser
+  reports `hasMore` so the button only shows when there's more.
 - **Address matching, part 2 (TODO §1).** The typed location now also
   resolves ~90 well-known neighbourhoods to their city (Koramangala →
   Bengaluru, Bandra → Mumbai, Hazratganj → Lucknow, DLF Cyber City →

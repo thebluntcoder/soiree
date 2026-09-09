@@ -206,24 +206,30 @@ def parse_restaurant_list(response: Any) -> dict[str, Any] | None:
         return None
 
     blob = _embedded_json(text)
+    coords = None
     if blob is not None and "restaurants" in blob:
         rows = _food_from_json(blob)
         source = "swiggy-food-json"
-        coords = None
+        total = int(blob.get("totalRestaurants") or blob.get("total") or len(rows))
+        has_more = bool(blob.get("hasMore")) or total > len(rows)
     else:
         rows = _dineout_from_text(text)
         source = "swiggy-dineout-text"
         cm = _COORDS.search(text)
-        coords = (
-            {"lat": float(cm.group(1)), "lng": float(cm.group(2))} if cm else None
-        )
+        if cm:
+            coords = {"lat": float(cm.group(1)), "lng": float(cm.group(2))}
+        mm = re.search(r"(\d+)\s+more\s+available", text, re.IGNORECASE)
+        tm = re.search(r"[Ff]ound\s+(\d+)\s+restaurant", text)
+        total = int(tm.group(1)) if tm else len(rows)
+        has_more = bool(mm) or total > len(rows)
 
     if not rows:
         return None
 
     data: dict[str, Any] = {
         "restaurants": rows,
-        "totalResults": len(rows),
+        "totalResults": total,
+        "hasMore": has_more,
         "source": source,
     }
     if coords:
