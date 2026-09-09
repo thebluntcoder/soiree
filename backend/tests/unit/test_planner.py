@@ -18,9 +18,12 @@ WHAT WE TEST:
 """
 
 import json
+from unittest.mock import AsyncMock
+
 import pytest
 from app.services.ai.prompts import build_system_prompt, build_user_prompt
-from app.services.ai.planner import _sanitize_patch
+from app.services.ai.planner import _enrich_dineout, _sanitize_patch
+from app.services.mcp.orchestrator import MCPOrchestrator
 
 
 class TestSystemPrompt:
@@ -351,3 +354,58 @@ class TestSanitizePatch:
 
     def test_drops_none_values(self):
         assert _sanitize_patch({"budget": None, "notes": None}) == {}
+
+
+_DETAILS_ENV = {
+    "result": {"content": [{"type": "text", "text": (
+        "Restaurant: Kwality Restaurant\n"
+        "Restaurant ID: 1369973\n"
+        "Cuisines: North Indian, Mughlai\n"
+        "Cost for two: ₹1600 for two\n"
+        "Timings: Open till 11PM\n"
+        "Offers: Flat 15% off on Total Bill\n"
+        "Amenities / Highlights: Reservation available, Valet parking\n"
+    )}]}
+}
+
+
+class TestEnrichDineout:
+    """_enrich_dineout fills a sparse picked-restaurant with get_restaurant_details."""
+
+    def _orch(self, details_env):
+        orch = MCPOrchestrator()
+        orch.dineout.get_restaurant_details = AsyncMock(return_value=details_env)
+        return orch
+
+    @pytest.mark.asyncio
+    async def test_merges_details_into_sparse_pick(self):
+        orch = self._orch(_DETAILS_ENV)
+        sparse = {"id": "1369973", "name": "Kwality Restaurant", "rating": 4.5,
+                  "locality": "DLF Cyber City"}
+        ctx = {"dineout": {"data": {"coordinates": {"lat": 28.4, "lng": 77.0}}}}
+
+        out = await _enrich_dineout(orch, sparse, ctx, "tok")
+
+        assert out["name"] == "Kwality Restaurant"      # user's pick preserved
+        assert out["rating"] == 4.5                     # existing value not clobbered
+        assert out["cuisine"] == "North Indian, Mughlai"
+        assert out["cost_for_two"] == 1600
+        assert out["amenities"] == ["Reservation available", "Valet parking"]
+        assert out["offers"] == [{"description": "Flat 15% off on Total Bill"}]
+        assert out["_enriched"] is True
+        # coords from context were passed to the MCP call
+        assert orch.dineout.get_restaurant_details.call_args.kwargs["lat"] == 28.4
+
+    @pytest.mark.asyncio
+    async def test_returns_pick_unchanged_on_failure(self):
+        orch = MCPOrchestrator()
+        orch.dineout.get_restaurant_details = AsyncMock(side_effect=RuntimeError("500"))
+        sparse = {"id": "x", "name": "Somewhere"}
+        out = await _enrich_dineout(orch, sparse, {}, "tok")
+        assert out == sparse
+
+    @pytest.mark.asyncio
+    async def test_unparseable_details_returns_pick(self):
+        orch = self._orch({"result": {"content": [{"type": "text", "text": "no fields"}]}})
+        sparse = {"id": "x", "name": "Somewhere"}
+        assert await _enrich_dineout(orch, sparse, {}, "tok") == sparse

@@ -26,7 +26,11 @@ import asyncio
 from fastapi import APIRouter, Header, HTTPException
 from app.schemas.plan import SearchRequest
 from app.services.mcp.orchestrator import MCPOrchestrator
-from app.services.mcp.parse_mcp import mcp_text, parse_restaurant_list
+from app.services.mcp.parse_mcp import (
+    mcp_text,
+    parse_restaurant_details,
+    parse_restaurant_list,
+)
 
 router = APIRouter()
 _orchestrator = None
@@ -196,6 +200,34 @@ async def search_restaurants(
         # Search coords Swiggy Dineout reported — needed for get_restaurant_details.
         "dineout_coordinates": dineout_data.get("coordinates"),
     }
+
+
+@router.get("/restaurant/{restaurant_id}", summary="Full details for one Dineout restaurant")
+async def restaurant_details(
+    restaurant_id: str,
+    lat: float | None = None,
+    lng: float | None = None,
+    x_session_id: str | None = Header(None, alias="X-Session-ID"),
+):
+    """
+    get_restaurant_details for one Dineout restaurant — cuisine, cost,
+    amenities, timings, offers. Used by the picker to expand a card the
+    user is considering. Returns {} in demo/mock mode.
+    """
+    access_token = None
+    if x_session_id:
+        from app.api.v1.endpoints.auth import get_access_token
+
+        access_token = await get_access_token(x_session_id)
+    if not access_token:
+        return {}
+    try:
+        raw = await get_orchestrator().dineout.get_restaurant_details(
+            restaurant_id, lat=lat, lng=lng, access_token=access_token
+        )
+    except Exception:  # noqa: BLE001
+        return {}
+    return parse_restaurant_details(raw) or {}
 
 
 @router.get("/_debug", summary="Raw Swiggy MCP text responses (needs a session)")

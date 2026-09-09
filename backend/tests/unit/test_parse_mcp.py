@@ -5,7 +5,11 @@ Fixtures below are trimmed from real `GET /search/_debug` output:
 Food packs a JSON blob in its text field; Dineout sends numbered text lines.
 """
 
-from app.services.mcp.parse_mcp import mcp_text, parse_restaurant_list
+from app.services.mcp.parse_mcp import (
+    mcp_text,
+    parse_restaurant_details,
+    parse_restaurant_list,
+)
 
 
 def _env(text: str) -> dict:
@@ -137,4 +141,59 @@ class TestPassThrough:
         assert parse_restaurant_list(_env("")) is None
         assert parse_restaurant_list(_env("Found 0 restaurants.")) is None
         assert parse_restaurant_list({"error": "boom"}) is None
+
+
+# ── real get_restaurant_details: "Key: Value" text ──────────────────────────
+DETAILS = _env(
+    "Restaurant: Dwarka Restaurant\n"
+    "Restaurant ID: 32544\n"
+    "Cuisines: North Indian, Chinese\n"
+    "Address: 15.2 km • 1st floor, plot 5, Sector 10, Dwarka, Delhi\n"
+    "Rating: 4.3\n"
+    "Cost for two: ₹500 for two\n"
+    "Timings: Open till 11PM\n"
+    "Coordinates: latitude=28.492222, longitude=77.0782287\n"
+    "Offers: Flat 25% off on Total Bill; Flat 20% off on Total Bill; "
+    "Flat 20% off on total bill\n"
+    "Amenities / Highlights: Reservation available, Parking available, Free wifi\n\n"
+    "When the user wants to book a table...\n"
+    "⚠️ A rich UI widget may be shown."
+)
+
+
+class TestRestaurantDetails:
+    def test_key_value_fields(self):
+        d = parse_restaurant_details(DETAILS)
+        assert d["name"] == "Dwarka Restaurant"
+        assert d["id"] == "32544"
+        assert d["cuisine"] == "North Indian, Chinese"
+        assert d["rating"] == 4.3
+        assert d["cost_for_two"] == 500
+        assert d["timings"] == "Open till 11PM"
+
+    def test_address_distance_split(self):
+        d = parse_restaurant_details(DETAILS)
+        assert d["distance_km"] == 15.2
+        assert d["address"] == "1st floor, plot 5, Sector 10, Dwarka, Delhi"
+
+    def test_offers_deduped(self):
+        d = parse_restaurant_details(DETAILS)
+        descs = [o["description"] for o in d["offers"]]
+        assert descs == ["Flat 25% off on Total Bill", "Flat 20% off on Total Bill"]
+
+    def test_amenities_list(self):
+        d = parse_restaurant_details(DETAILS)
+        assert d["amenities"] == [
+            "Reservation available", "Parking available", "Free wifi"
+        ]
+
+    def test_coordinates(self):
+        assert parse_restaurant_details(DETAILS)["coordinates"] == {
+            "lat": 28.492222, "lng": 77.0782287
+        }
+
+    def test_non_detail_is_none(self):
+        assert parse_restaurant_details({"data": {}}) is None
+        assert parse_restaurant_details(_env("just some prose with no colon fields")) is None
+        assert parse_restaurant_details(_env("Foo: bar\nBaz: qux")) is None  # no "Restaurant:"
         assert parse_restaurant_list(_env('{"total":0,"restaurants":[]}')) is None

@@ -227,22 +227,34 @@ def build_user_prompt(
 
     selected_context = ""
     if selected_dineout:
+        d = selected_dineout
         slots = [
             s.get("time", s) if isinstance(s, dict) else s
-            for s in selected_dineout.get("available_slots", [])
+            for s in d.get("available_slots", [])
         ]
-        selected_context += f"""
-USER HAS CHOSEN THIS DINEOUT RESTAURANT — write entire [DINEOUT] section around it:
-  Name:     {selected_dineout.get("name")}
-  Cuisine:  {selected_dineout.get("cuisine")}
-  Rating:   {selected_dineout.get("rating")}★
-  Cost/2:   ₹{selected_dineout.get("cost_for_two")}
-  Distance: {selected_dineout.get("distance_km")} km
-  Known for: {", ".join(selected_dineout.get("known_for", []))}
-  Slots:    {", ".join(slots)}
-  Offers:   {selected_dineout.get("offers", [])}
-Do NOT suggest alternatives. Plan around this restaurant only.
-"""
+        offer_lines = [
+            o.get("description", o) if isinstance(o, dict) else o
+            for o in d.get("offers", [])
+        ]
+
+        def _line(label: str, value) -> str:
+            return f"  {label:<10}{value}\n" if value else ""
+
+        selected_context += (
+            "\nUSER HAS CHOSEN THIS DINEOUT RESTAURANT — write the entire "
+            "[DINEOUT] section around it. Do NOT suggest alternatives.\n"
+            + _line("Name:", d.get("name"))
+            + _line("Cuisine:", d.get("cuisine"))
+            + _line("Rating:", f"{d.get('rating')}★" if d.get("rating") else None)
+            + _line("Cost/2:", f"₹{d['cost_for_two']}" if d.get("cost_for_two") else None)
+            + _line("Where:", d.get("address") or d.get("locality"))
+            + _line("Distance:", f"{d['distance_km']} km" if d.get("distance_km") else None)
+            + _line("Timings:", d.get("timings"))
+            + _line("Amenities:", ", ".join(d.get("amenities", [])) or None)
+            + _line("Known for:", ", ".join(d.get("known_for", [])) or None)
+            + _line("Slots:", ", ".join(str(s) for s in slots) or None)
+            + _line("Offers:", "; ".join(str(o) for o in offer_lines) or None)
+        )
 
     if selected_food:
         selected_context += f"""

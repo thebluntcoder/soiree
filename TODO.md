@@ -55,11 +55,16 @@ records what's next. Roughly ordered by priority within each section.
       and `offset`. The picker has a refine box ("Not quite right? try
       'rooftop', 'Italian', a name…") and a "Show more options" button per
       section (shown when Swiggy reports `hasMore`).
-- [ ] **Enrich the selected Dineout restaurant in `/plans/generate`** —
-      the Dineout list has no cuisine / ambience / slots, so `[DINEOUT]`
-      plans are thin. Call `get_restaurant_details(id, lat, lng)` for the
-      picked restaurant and fold cuisine / cost / ambience / slots into the
-      prompt. Needs the `restaurant_details` response format (next `_debug`).
+- [x] **Enrich the picked Dineout restaurant.** `get_restaurant_details`
+      returns "Key: Value" text (cuisine, cost, address, timings, offers,
+      amenities — no slots; those need a date via `get_available_slots`).
+      `parse_mcp.parse_restaurant_details` normalises it. `/plans/generate`
+      merges it into `selected_dineout` before the prompt (so `[DINEOUT]`
+      gets amenities / real offers / timings); `GET /search/restaurant/{id}`
+      + the picker expands a card with the same data when you select it.
+- [ ] Slots in the picker/plan — `get_available_slots(id, date, lat, lng)`.
+      Deferred to Phase 2 (booking): the plan says a time, the booking flow
+      resolves it to a real `slotId`.
 
 ## 3. Production readiness (before any public launch)
 
