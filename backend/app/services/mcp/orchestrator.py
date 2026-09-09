@@ -104,12 +104,65 @@ for _group in _CITY_SYNONYM_GROUPS:
     for _name in _group:
         _CITY_SYNONYMS.setdefault(_name, set()).update(_group)
 
+# Well-known neighbourhoods → their city, for the big metros. Lets someone
+# type "Koramangala" or "Bandra" and still match their Bengaluru / Mumbai
+# saved address. Best-effort, not exhaustive — a real geocoder is the
+# proper fix (see TODO.md §1).
+_AREA_TO_CITY = {
+    # Bengaluru
+    "koramangala": "bengaluru", "indiranagar": "bengaluru",
+    "whitefield": "bengaluru", "jayanagar": "bengaluru", "hsr": "bengaluru",
+    "marathahalli": "bengaluru", "yelahanka": "bengaluru",
+    "electronic city": "bengaluru", "malleshwaram": "bengaluru",
+    "hebbal": "bengaluru", "btm": "bengaluru", "bellandur": "bengaluru",
+    "sarjapur": "bengaluru", "banashankari": "bengaluru",
+    # Mumbai
+    "bandra": "mumbai", "andheri": "mumbai", "powai": "mumbai",
+    "juhu": "mumbai", "colaba": "mumbai", "dadar": "mumbai",
+    "worli": "mumbai", "malad": "mumbai", "goregaon": "mumbai",
+    "borivali": "mumbai", "thane": "mumbai", "vashi": "mumbai",
+    "chembur": "mumbai", "lower parel": "mumbai",
+    # Delhi
+    "hauz khas": "delhi", "saket": "delhi", "connaught place": "delhi",
+    "rajouri": "delhi", "dwarka": "delhi", "rohini": "delhi",
+    "lajpat nagar": "delhi", "vasant kunj": "delhi", "karol bagh": "delhi",
+    "nehru place": "delhi", "janakpuri": "delhi", "greater kailash": "delhi",
+    # Gurugram
+    "cyber city": "gurugram", "cyber hub": "gurugram", "dlf": "gurugram",
+    "golf course road": "gurugram", "sohna road": "gurugram",
+    "udyog vihar": "gurugram", "mg road gurgaon": "gurugram",
+    # Hyderabad
+    "gachibowli": "hyderabad", "hitec city": "hyderabad",
+    "hitech city": "hyderabad", "banjara hills": "hyderabad",
+    "jubilee hills": "hyderabad", "madhapur": "hyderabad",
+    "kondapur": "hyderabad", "secunderabad": "hyderabad",
+    "kukatpally": "hyderabad", "begumpet": "hyderabad",
+    # Pune
+    "koregaon park": "pune", "kalyani nagar": "pune", "hinjewadi": "pune",
+    "viman nagar": "pune", "baner": "pune", "kothrud": "pune",
+    "hadapsar": "pune", "aundh": "pune", "wakad": "pune",
+    # Chennai
+    "adyar": "chennai", "velachery": "chennai", "nungambakkam": "chennai",
+    "anna nagar": "chennai", "omr": "chennai", "t nagar": "chennai",
+    "mylapore": "chennai", "guindy": "chennai", "porur": "chennai",
+    # Kolkata
+    "salt lake": "kolkata", "park street": "kolkata", "ballygunge": "kolkata",
+    "new town": "kolkata", "howrah": "kolkata", "behala": "kolkata",
+    # Lucknow
+    "hazratganj": "lucknow", "gomti nagar": "lucknow", "aminabad": "lucknow",
+    "indira nagar lucknow": "lucknow", "aliganj": "lucknow",
+    "lda colony": "lucknow", "alambagh": "lucknow",
+    # NCR (distinct cities but people conflate)
+    "noida": "noida", "greater noida": "noida", "ghaziabad": "ghaziabad",
+    "faridabad": "faridabad",
+}
+
 # Generic address-structure words — never enough to identify a city.
 _ADDRESS_NOISE = {
     "flat", "floor", "block", "sector", "phase", "plot", "house", "near",
     "opposite", "opp", "behind", "beside", "next", "road", "street", "lane",
     "cross", "main", "gate", "circle", "market", "the", "and", "for",
-    "home", "work", "other", "office",
+    "home", "work", "other", "office", "tower", "wing", "apartment",
 }
 
 
@@ -118,31 +171,57 @@ def _tokens(text: str) -> set[str]:
     return {w for w in re.findall(r"[a-z]+", text.lower()) if len(w) >= 3}
 
 
+def _city_terms_from_text(text: str) -> set[str]:
+    """
+    Every city name a free-text location/address string implies — its own
+    words plus renamed-city synonyms plus neighbourhood → city mappings.
+
+      "Sector 29, Gurugram"     → {"gurugram", "gurgaon"}
+      "5th Block, Koramangala"  → {"koramangala", "bengaluru", "bangalore"}
+      "Jubilee Hills, Hyderabad" → {"jubilee", "hills", "hyderabad"}
+    """
+    if not text:
+        return set()
+    low = text.lower()
+    out: set[str] = set()
+
+    for tok in _tokens(text) - _ADDRESS_NOISE:
+        out.add(tok)
+        out |= _CITY_SYNONYMS.get(tok, set())
+        mapped = _AREA_TO_CITY.get(tok)
+        if mapped:
+            out.add(mapped)
+            out |= _CITY_SYNONYMS.get(mapped, set())
+
+    # multi-word phrases ("cyber city", "jubilee hills") — substring match
+    for area, city in _AREA_TO_CITY.items():
+        if " " in area and area in low:
+            out.add(city)
+            out |= _CITY_SYNONYMS.get(city, set())
+
+    return out
+
+
 def _location_terms(location: str) -> set[str]:
     """
-    The city-identifying words from what the user typed, expanded with
-    known alternate names.  "Sector 29, Gurugram" → {"gurugram", "gurgaon"}.
-
-    The part after the last comma is almost always the city; if that turns
-    out to be all noise we fall back to the whole string.
+    City names the location the user typed implies. Prefers the part after
+    the last comma (usually the city); falls back to the whole string.
     """
     if not location:
         return set()
     tail = location.rsplit(",", 1)[-1]
-    terms = _tokens(tail) - _ADDRESS_NOISE
-    if not terms:
-        terms = _tokens(location) - _ADDRESS_NOISE
-    expanded = set(terms)
-    for term in terms:
-        expanded |= _CITY_SYNONYMS.get(term, set())
-    return expanded
+    return _city_terms_from_text(tail) or _city_terms_from_text(location)
 
 
 def _line_matches_location(address_line: str, location_terms: set[str]) -> bool:
-    """True if a saved-address line shares a city word with the request."""
+    """
+    True if a saved-address line resolves to a city the request also names.
+    Both sides go through _city_terms_from_text, so "typed Bengaluru" matches
+    an address that only says "Koramangala".
+    """
     if not location_terms:
         return False
-    return bool(location_terms & (_tokens(address_line) - _ADDRESS_NOISE))
+    return bool(location_terms & _city_terms_from_text(address_line))
 
 
 class MCPOrchestrator:
@@ -182,30 +261,39 @@ class MCPOrchestrator:
 
         terms = _location_terms(location)
 
-        address_id, food_matched = DEFAULT_MOCK_ADDRESS_ID, False
+        address_id, food_matched, food_label = DEFAULT_MOCK_ADDRESS_ID, False, ""
         if not isinstance(addresses_result, Exception):
-            address_id, food_matched = _resolve_address_id(addresses_result, terms)
+            address_id, food_matched, food_label = _resolve_address_id(
+                addresses_result, terms
+            )
 
         # Dineout also uses an addressId (same text format as get_addresses).
-        dineout_address_id, dineout_matched = DEFAULT_MOCK_ADDRESS_ID, False
+        dineout_address_id, dineout_matched, dineout_label = (
+            DEFAULT_MOCK_ADDRESS_ID,
+            False,
+            "",
+        )
         if not isinstance(locations_result, Exception):
-            dineout_address_id, dineout_matched = _resolve_address_id(
+            dineout_address_id, dineout_matched, dineout_label = _resolve_address_id(
                 locations_result, terms
             )
 
         city_matched = not terms or food_matched or dineout_matched
+        address_label = food_label or dineout_label
         logger.info(
-            "Resolved addressId food=%s dineout=%s (requested=%r, city match=%s)",
+            "Resolved addressId food=%s dineout=%s (requested=%r, city match=%s, using=%r)",
             address_id,
             dineout_address_id,
             location,
             city_matched,
+            address_label,
         )
         return address_id, {
             "address_id": dineout_address_id,
             "lat": DEFAULT_MOCK_LOCATION["lat"],
             "lng": DEFAULT_MOCK_LOCATION["lng"],
             "city_matched": city_matched,
+            "address_label": address_label,
         }
 
     async def gather_context(
@@ -332,9 +420,17 @@ class MCPOrchestrator:
         context["coordinates"] = {"lat": dineout_lat, "lng": dineout_lng}
         context["alcohol_preference"] = alcohol_preference
 
+        used_gps = bool(lat and lng)
+
+        # The real saved address the search actually ran against (only known
+        # when authenticated, and not when GPS overrode it). Surfaced in the
+        # picker + plan so the user can see it at a glance.
+        address_label = saved_location.get("address_label")
+        if access_token and not used_gps and address_label:
+            context["address_used"] = address_label
+
         # If the user typed a city but has no Swiggy address there (and gave no
         # GPS), every search ran against their default address — tell them.
-        used_gps = bool(lat and lng)
         if (
             access_token
             and location
@@ -577,9 +673,26 @@ def _dineout_query(
     return "restaurant"
 
 
+def _address_label(line: str) -> str:
+    """
+    A short human label for a saved-address line, for showing the user which
+    address a plan was built from.
+
+      "2. [Home] Uttkarsh Mishra: E-1/432, LDA Colony, Lucknow (ID: 43530781)"
+      → "[Home] E-1/432, LDA Colony, Lucknow"
+    """
+    text = re.sub(r"\s*\(ID:[^)]*\)\s*$", "", line).strip()
+    text = re.sub(r"^\s*\d+[.)]\s*", "", text)  # drop leading "2." / "2)"
+    label = re.match(r"(\[[^\]]+\]\s*)?", text).group(0)
+    rest = text[len(label):]
+    if ":" in rest:  # "Name: address" → keep the address part
+        rest = rest.split(":", 1)[1].strip()
+    return f"{label}{rest}".strip()[:120]
+
+
 def _resolve_address_id(
     response: dict, location_terms: set[str] | None = None
-) -> tuple[str, bool]:
+) -> tuple[str, bool, str]:
     """
     Parse a real Swiggy get_addresses / get_saved_locations response and pick
     one addressId.
@@ -593,14 +706,14 @@ def _resolve_address_id(
       2. the [Home] address
       3. the first address with an ID
 
-    Returns (address_id, matched_requested_city).
+    Returns (address_id, matched_requested_city, human_label).
     """
     terms = location_terms or set()
     try:
         content = response.get("result", {}).get("content", [])
         text = next((c["text"] for c in content if c.get("type") == "text"), "")
         if not text:
-            return DEFAULT_MOCK_ADDRESS_ID, False
+            return DEFAULT_MOCK_ADDRESS_ID, False, ""
 
         id_pattern = re.compile(r"\(ID:\s*([^)]+)\)")
         lines = text.split("\n")
@@ -610,25 +723,25 @@ def _resolve_address_id(
                 if _line_matches_location(line, terms):
                     match = id_pattern.search(line)
                     if match:
-                        return match.group(1).strip(), True
+                        return match.group(1).strip(), True, _address_label(line)
 
         for line in lines:
             if "[home]" in line.lower():
                 match = id_pattern.search(line)
                 if match:
-                    return match.group(1).strip(), False
+                    return match.group(1).strip(), False, _address_label(line)
 
         for line in lines:
             match = id_pattern.search(line)
             if match:
-                return match.group(1).strip(), False
+                return match.group(1).strip(), False, _address_label(line)
 
     except Exception as e:
         logger.warning("Failed to parse address response: %s", e)
 
-    return DEFAULT_MOCK_ADDRESS_ID, False
+    return DEFAULT_MOCK_ADDRESS_ID, False, ""
 
 
 def _parse_address_id(response: dict, preferred_city: str = "") -> str:
-    """Back-compat shim — the addressId only, dropping the match flag."""
+    """Back-compat shim — the addressId only, dropping the match flag + label."""
     return _resolve_address_id(response, _location_terms(preferred_city))[0]

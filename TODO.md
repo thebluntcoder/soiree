@@ -5,33 +5,33 @@ records what's next. Roughly ordered by priority within each section.
 
 ---
 
-## 0. Ship what's merged
+## 0. Ship what's merged ✅
 
-Everything since PR #1 is on `main` but **not deployed**.
-
-- [ ] Redeploy backend to Railway (`main`) — runs `alembic upgrade head` on boot
-- [ ] Redeploy frontend to Vercel — `demo.html` + `/auth/callback` page
-- [ ] Smoke test on prod: Connect Swiggy → land back on `/demo.html`;
-      type a non-Lucknow city → correct results or the amber banner;
-      chat "switch to Italian" / "lower the budget" → plan rebuilds
+- [x] Backend on Railway (`main`), frontend on Vercel — PRs #1–#5 live
+- [x] Prod smoke test — new endpoints, refine, OAuth return, `location_warning`
 
 ---
 
-## 1. Location & address resolution
+## 1. Location & address resolution ✅ (except create_address)
 
-- [ ] **Test with a real multi-city Swiggy account** — confirm the typed
-      city resolves to the right saved address, and the fallback banner
-      shows when it doesn't
-- [ ] `create_address` flow — when the user types a city they haven't
-      saved, geocode it and offer to add a temp address to their Swiggy
-      account (needs an explicit consent step; verify Dineout behaves with
-      a brand-new address)
-- [ ] Geocode-based matching as a fallback to word-overlap — geocode the
-      typed location + each saved address, pick nearest. Frontend already
-      uses Nominatim for the GPS button; reuse it server-side or via a
-      cached geocode table
-- [ ] Surface which saved address was used, in the plan UI (not just the
-      warning) so the user can tell at a glance
+- [x] **Tested with a real multi-city Swiggy account** — typed city
+      resolves to the right saved address; fallback banner shows otherwise
+- [x] **Better matching** — shared-city-word + ~35 renamed-city synonyms +
+      ~90 neighbourhood → city mappings (Koramangala/Bandra/Hazratganj/…),
+      both the typed side and the saved-address side expanded, so
+      "Whitefield" matches a "Bengaluru" address and vice versa
+- [x] **Surface the address used** — `address_used` in `/search/` response
+      and the plan prompt; shown in the picker banner and above the plan
+- [ ] `create_address` flow — **deferred**. When the user types a city
+      with no saved address, geocode it and offer to add a temp address to
+      their Swiggy account. Needs the Swiggy MCP `create_address` tool
+      schema (only named in a docstring) + a consent step + testing
+      against a real account (it writes to the user's Swiggy account).
+- [ ] True geocoding fallback — **deferred alongside create_address**.
+      Geocode the typed location + each saved address, pick nearest.
+      Server-side Nominatim is rate-limited/fragile from Railway; a bundled
+      city+area gazetteer covers most of it and is what the matcher does
+      today. Revisit if the neighbourhood map proves too narrow.
 
 ## 2. Dineout result quality (handoff task #1)
 

@@ -134,4 +134,7 @@ async def search_restaurants(
         # Set when the typed city has no matching saved Swiggy address —
         # the picker shows results for the user's default address instead.
         "location_warning": context.get("location_warning"),
+        # The saved Swiggy address the search actually ran against
+        # (only when authenticated). null in demo/mock mode.
+        "address_used": context.get("address_used"),
     }

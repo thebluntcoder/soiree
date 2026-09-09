@@ -7,7 +7,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-_Nothing yet — see [TODO.md](TODO.md) for what's planned._
+### Added
+- **Address matching, part 2 (TODO §1).** The typed location now also
+  resolves ~90 well-known neighbourhoods to their city (Koramangala →
+  Bengaluru, Bandra → Mumbai, Hazratganj → Lucknow, DLF Cyber City →
+  Gurugram, …), and both sides of the comparison are expanded — so
+  "Whitefield" matches a saved address that only says "Bengaluru", and
+  "Bangalore" matches one that only says "Koramangala".
+- **"Planning from …"** — the saved Swiggy address a plan was actually
+  built from is returned by `POST /search/` (`address_used`), injected
+  into the plan prompt, and shown in the picker banner + above the plan.
+- `create_address` (add a Swiggy address for an unsaved city) stays
+  deferred — see [TODO.md](TODO.md) §1 for why.
 
 ---
 

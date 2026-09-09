@@ -1908,6 +1908,7 @@ const S = {
   streaming: false,
   chatMsgs: [],
   planText: '',
+  addressUsed: null,
   lastReq: null,
 };
 
@@ -2220,6 +2221,12 @@ function renderPlan(plan) {
   const c = document.getElementById('planContent');
   let html = '';
 
+  if (S.addressUsed) {
+    html += `<div class="reveal" id="rAddr" style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:18px;display:flex;align-items:center;gap:8px">
+      <span>📍</span><span>Planning from ${S.addressUsed}</span>
+    </div>`;
+  }
+
   if (plan.brief) {
     html += `<div class="plan-brief reveal" id="r0">
       <p class="brief-text">${plan.brief}</p>
@@ -2377,9 +2384,9 @@ function renderPlan(plan) {
   c.style.display = 'block';
 
   // Staggered reveals
-['r0','r1','r2','r3','r4','r5','r6','r7'].forEach((id, i) => {
+['rAddr','r0','r1','r2','r3','r4','r5','r6','r7'].forEach((id, i) => {
     const el = document.getElementById(id);
-    if (el) reveal(el, i * 120);
+    if (el) reveal(el, i * 110);
   });
 
   // Update order total after DOM is ready
@@ -2437,6 +2444,7 @@ async function generate() {
 
     if (!searchResponse.ok) throw new Error(searchResponse.status);
     const searchData = await searchResponse.json();
+    S.addressUsed = searchData.address_used || null;
 
     if (searchData.dineout?.length > 0 || searchData.food?.length > 0) {
       showPicker(searchData);
@@ -2551,6 +2559,7 @@ function resetPlan() {
   es.querySelector('.empty-sub').textContent = 'Configure your event and let Soirée orchestrate every detail — from rooftop reservations to 10-minute grocery deliveries.';
   S.chatMsgs = [];
   S.planText = '';
+  S.addressUsed = null;
   S.selectedDineout = null;
   S.selectedFood = null;
 }
@@ -2715,13 +2724,17 @@ S.searchData = null;
 
 function showPicker(data) {
   S.searchData = data;
+  S.addressUsed = data.address_used || null;
   document.getElementById('pickerState').style.display = 'block';
   document.getElementById('emptyState').style.display = 'none';
 
   const warn = document.getElementById('pickerLocWarning');
   if (data.location_warning) {
     warn.textContent = '⚠  ' + data.location_warning;
-    warn.style.display = 'block';
+    warn.style.cssText = 'display:block;margin-bottom:24px;padding:12px 16px;border:1px solid var(--amber-dim);border-left:2px solid var(--amber);border-radius:8px;background:var(--amber-dim);font-size:12px;color:var(--amber);line-height:1.6';
+  } else if (data.address_used) {
+    warn.textContent = '📍  Planning from your Swiggy address — ' + data.address_used;
+    warn.style.cssText = 'display:block;margin-bottom:24px;padding:10px 14px;border:1px solid var(--border2);border-radius:8px;font-size:12px;color:var(--text3);line-height:1.6';
   } else {
     warn.style.display = 'none';
   }
