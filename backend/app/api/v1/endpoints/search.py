@@ -142,9 +142,13 @@ async def search_restaurants(
                     "rating": r.get("rating"),
                     "delivery_time_mins": r.get("deliveryTimeMinutes")
                     or r.get("delivery_time_mins"),
+                    "delivery_time_range": r.get("deliveryTimeRange"),
                     "price_for_two": r.get("priceForTwo") or r.get("price_for_two"),
                     "distance_km": r.get("distanceKm") or r.get("distance_km"),
                     "locality": r.get("locality"),
+                    "veg": r.get("veg"),
+                    "image_url": r.get("imageUrl"),
+                    "sponsored": r.get("sponsored", False),
                     "top_dishes": r.get("topDishes") or r.get("top_dishes", []),
                     "offers": r.get("offers", []),
                     "availability_status": r.get("availabilityStatus", "OPEN"),
@@ -157,6 +161,13 @@ async def search_restaurants(
             for r in food_options[:_MAX_OPTIONS]
         ]
 
+    dineout_ctx = context.get("dineout") or {}
+    dineout_coords = (
+        dineout_ctx.get("data", {}).get("coordinates")
+        if isinstance(dineout_ctx, dict)
+        else None
+    )
+
     return {
         "dineout": dineout_options,
         "food": food_options,
@@ -168,6 +179,8 @@ async def search_restaurants(
         # The saved Swiggy address the search actually ran against
         # (only when authenticated). null in demo/mock mode.
         "address_used": context.get("address_used"),
+        # Search coords Swiggy Dineout reported — needed for get_restaurant_details.
+        "dineout_coordinates": dineout_coords,
     }
 
 
@@ -209,12 +222,33 @@ async def search_debug(
         ),
         return_exceptions=True,
     )
+
+    # Also grab get_restaurant_details for the first dineout hit — the list is
+    # sparse (name + rating + locality only); we need this format to enrich it.
+    details_raw = None
+    d_parsed = _try_parse(dineout_raw)
+    if d_parsed:
+        first = d_parsed[0]
+        coords = (parse_restaurant_list(dineout_raw) or {}).get("data", {}).get(
+            "coordinates", {}
+        )
+        try:
+            details_raw = await orch.dineout.get_restaurant_details(
+                first["id"],
+                lat=coords.get("lat"),
+                lng=coords.get("lng"),
+                access_token=access_token,
+            )
+        except Exception as e:  # noqa: BLE001 — debug endpoint
+            details_raw = e
+
     return {
         "address_id": address_id,
         "food_text": _safe_text(food_raw),
         "dineout_text": _safe_text(dineout_raw),
         "food_parsed": _try_parse(food_raw),
-        "dineout_parsed": _try_parse(dineout_raw),
+        "dineout_parsed": d_parsed,
+        "restaurant_details_text": _safe_text(details_raw) if details_raw else None,
     }
 
 

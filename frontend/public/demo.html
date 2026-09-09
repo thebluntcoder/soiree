@@ -2793,16 +2793,21 @@ function showPicker(data) {
       <div id="fcard-${i}" onclick="selectFood(${i})" style="
         padding:16px 20px;border:1px solid var(--border);border-radius:14px;
         background:var(--surface);cursor:pointer;transition:all 0.2s;
+        display:flex;gap:14px;align-items:flex-start;
       ">
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+        ${r.image_url ? `<img src="${r.image_url}" alt="" loading="lazy" style="width:56px;height:56px;border-radius:10px;object-fit:cover;flex-shrink:0" onerror="this.style.display='none'">` : ''}
+        <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+          ${r.veg === true ? '<span style="color:var(--green2);font-size:10px">🟢</span>' : ''}
           <span style="font-size:14px;font-weight:500;color:var(--text)">${r.name}</span>
-          <span style="font-size:11px;color:var(--text3)">${r.cuisine}</span>
-          <span style="margin-left:auto;font-size:12px;color:var(--gold);font-family:'DM Mono',monospace">★ ${r.rating}</span>
+          ${r.sponsored ? '<span style="font-size:9px;letter-spacing:1px;color:var(--text4)">AD</span>' : ''}
+          ${r.cuisine ? `<span style="font-size:11px;color:var(--text3)">${r.cuisine}</span>` : ''}
+          ${r.rating ? `<span style="margin-left:auto;font-size:12px;color:var(--gold);font-family:'DM Mono',monospace">★ ${r.rating}</span>` : ''}
         </div>
         ${metaRow([
           r.locality && '📍 ' + r.locality,
           r.price_for_two && '₹' + r.price_for_two.toLocaleString('en-IN') + ' for 2',
-          r.delivery_time_mins && r.delivery_time_mins + ' min delivery',
+          r.delivery_time_range || (r.delivery_time_mins && r.delivery_time_mins + ' min'),
           r.distance_km != null && r.distance_km + ' km away',
         ])}
         ${r.top_dishes?.length ? `
@@ -2815,6 +2820,7 @@ function showPicker(data) {
           </div>
         ` : ''}
         ${r.offers?.length ? `<div style="font-size:11px;color:var(--green2)">🏷 ${r.offers[0].description}</div>` : ''}
+        </div>
       </div>
     `).join('');
   }

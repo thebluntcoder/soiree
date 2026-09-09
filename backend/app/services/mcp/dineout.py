@@ -211,13 +211,25 @@ class DineoutMCPClient(BaseMCPClient):
             },
         )
 
-    async def get_restaurant_details(self, restaurant_id: str) -> dict[str, Any]:
+    async def get_restaurant_details(
+        self,
+        restaurant_id: str,
+        lat: float | None = None,
+        lng: float | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, Any]:
         """
-        Fetch full restaurant details: ratings, amenities, photos, Dineout deals.
-        Used when the AI needs more context to write a compelling recommendation.
+        Fetch full restaurant details: cuisine, cost, ambience, amenities,
+        Dineout deals, slots. The real API wants the same lat/lng that the
+        `search_restaurants_dineout` response reported ("Search coordinates:
+        latitude=… longitude=…").
         """
+        params: dict[str, Any] = {"restaurantId": restaurant_id}
+        if lat is not None and lng is not None:
+            params["latitude"] = lat
+            params["longitude"] = lng
         return await self._call_mcp(
-            "get_restaurant_details", {"restaurantId": restaurant_id}
+            "get_restaurant_details", params, access_token=access_token
         )
 
     # -------------------------------------------------------------------------
