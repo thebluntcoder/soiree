@@ -35,12 +35,21 @@ records what's next. Roughly ordered by priority within each section.
 
 ## 2. Dineout result quality (handoff task #1)
 
-- [ ] Verify the restaurant-selection criteria in `build_system_prompt()`
-      actually work with real Dineout data — Claude should pick a
-      high-rated restaurant in a known locality that fits the occasion,
-      not a random one from the 39
-- [ ] Consider passing `get_restaurant_details` for the top 2–3 candidates
-      so Claude has amenities / ambience / photos to choose on
+- [x] **Parse the real MCP text responses.** `parse_mcp.py` turns Swiggy's
+      text into the same `{"data": {"restaurants": [...]}}` shape the mock
+      emits — before this the picker only worked in mock mode; a real token
+      gave an unparsed envelope that `search.py` read as an empty list.
+- [x] **Rank + cap** the picker options (rating → MCP relevance → distance,
+      top 8). Selection rules in `build_system_prompt()` rewritten to lean
+      on rating + `locality` + occasion and made city-agnostic.
+- [x] Null-safe picker cards + `GET /search/_debug` (session-gated) that
+      returns the raw MCP text, to tune the parser against live output.
+- [ ] **Tune `parse_mcp.py` against a real `_debug` sample** — the regexes
+      are built from the documented format; confirm name/rating/locality/
+      id extraction on live Dineout + Food text, adjust, add fixtures.
+- [ ] `get_restaurant_details` for the top 2–3 dineout candidates — worth
+      doing **if** the real list turns out sparse (name + rating only);
+      fills in cuisine / ambience / amenities for the cards and the prompt.
 
 ## 3. Production readiness (before any public launch)
 

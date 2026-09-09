@@ -21,12 +21,18 @@ This endpoint is fast (~300ms) — no Claude call, just MCP data.
 It returns structured restaurant cards ready to render in the UI.
 """
 
-from fastapi import APIRouter, Header
+import asyncio
+
+from fastapi import APIRouter, Header, HTTPException
 from app.schemas.plan import SearchRequest
 from app.services.mcp.orchestrator import MCPOrchestrator
+from app.services.mcp.parse_mcp import mcp_text, parse_restaurant_list
 
 router = APIRouter()
 _orchestrator = None
+
+# How many options to show in the picker per service.
+_MAX_OPTIONS = 8
 
 
 def get_orchestrator() -> MCPOrchestrator:
@@ -34,6 +40,17 @@ def get_orchestrator() -> MCPOrchestrator:
     if _orchestrator is None:
         _orchestrator = MCPOrchestrator()
     return _orchestrator
+
+
+def _rank_key(r: dict):
+    """
+    Sort restaurants best-first: highest rating, then whatever the MCP
+    returned first (its own relevance order), then nearest.
+    """
+    rating = r.get("rating") or r.get("_rank_rating") or 0
+    original = r.get("_rank", 999)
+    distance = r.get("distance_km") or r.get("distanceKm") or 999
+    return (-float(rating), original, float(distance))
 
 
 @router.post("/", summary="Discover restaurant options before plan generation")
@@ -83,7 +100,7 @@ async def search_restaurants(
     dineout_options = []
     food_options = []
 
-    # Dineout restaurants
+    # Dineout restaurants — best-rated first, capped at _MAX_OPTIONS
     if context.get("dineout") and "error" not in context["dineout"]:
         raw = context["dineout"]
         restaurants = raw.get("data", {}).get("restaurants", raw.get("restaurants", []))
@@ -96,14 +113,21 @@ async def search_restaurants(
                     "rating": r.get("rating"),
                     "cost_for_two": r.get("costForTwo") or r.get("cost_for_two"),
                     "distance_km": r.get("distanceKm") or r.get("distance_km"),
+                    "locality": r.get("locality"),
                     "ambience": r.get("ambience", []),
                     "known_for": r.get("knownFor") or r.get("known_for", []),
                     "available_slots": r.get("availableSlots")
                     or r.get("available_slots", []),
                     "offers": r.get("offers", []),
                     "availability": r.get("availability", "AVAILABLE"),
+                    "_rank": r.get("_rank", 999),
                 }
             )
+        dineout_options.sort(key=_rank_key)
+        dineout_options = [
+            {k: v for k, v in r.items() if k != "_rank"}
+            for r in dineout_options[:_MAX_OPTIONS]
+        ]
 
     # Food restaurants
     if context.get("food") and "error" not in context["food"]:
@@ -120,11 +144,18 @@ async def search_restaurants(
                     or r.get("delivery_time_mins"),
                     "price_for_two": r.get("priceForTwo") or r.get("price_for_two"),
                     "distance_km": r.get("distanceKm") or r.get("distance_km"),
+                    "locality": r.get("locality"),
                     "top_dishes": r.get("topDishes") or r.get("top_dishes", []),
                     "offers": r.get("offers", []),
                     "availability_status": r.get("availabilityStatus", "OPEN"),
+                    "_rank": r.get("_rank", 999),
                 }
             )
+        food_options.sort(key=_rank_key)
+        food_options = [
+            {k: v for k, v in r.items() if k != "_rank"}
+            for r in food_options[:_MAX_OPTIONS]
+        ]
 
     return {
         "dineout": dineout_options,
@@ -138,3 +169,63 @@ async def search_restaurants(
         # (only when authenticated). null in demo/mock mode.
         "address_used": context.get("address_used"),
     }
+
+
+@router.get("/_debug", summary="Raw Swiggy MCP text responses (needs a session)")
+async def search_debug(
+    x_session_id: str | None = Header(None, alias="X-Session-ID"),
+):
+    """
+    Returns the raw, unparsed text Swiggy MCP sends back for a Food and a
+    Dineout search — used to tune `parse_mcp.py` against live output.
+    Requires a valid Swiggy session; useless (and returns 400) without one.
+    """
+    access_token = None
+    if x_session_id:
+        from app.api.v1.endpoints.auth import get_access_token
+
+        access_token = await get_access_token(x_session_id)
+    if not access_token:
+        raise HTTPException(
+            status_code=400, detail="Connect Swiggy first — this needs a live token."
+        )
+
+    orch = get_orchestrator()
+    address_id, saved = await orch.resolve_addresses(
+        location="", access_token=access_token
+    )
+    dineout_address_id = saved.get("address_id", address_id)
+
+    food_raw, dineout_raw = await asyncio.gather(
+        orch.food.search_restaurants(
+            address_id=address_id, query="restaurant", access_token=access_token
+        ),
+        orch.dineout.search_restaurants(
+            lat=0,
+            lng=0,
+            address_id=dineout_address_id,
+            query="restaurant",
+            access_token=access_token,
+        ),
+        return_exceptions=True,
+    )
+    return {
+        "address_id": address_id,
+        "food_text": _safe_text(food_raw),
+        "dineout_text": _safe_text(dineout_raw),
+        "food_parsed": _try_parse(food_raw),
+        "dineout_parsed": _try_parse(dineout_raw),
+    }
+
+
+def _safe_text(result) -> str:
+    if isinstance(result, Exception):
+        return f"<error: {result}>"
+    return mcp_text(result) or f"<not text: {str(result)[:400]}>"
+
+
+def _try_parse(result):
+    if isinstance(result, Exception):
+        return None
+    parsed = parse_restaurant_list(result)
+    return parsed["data"]["restaurants"] if parsed else None

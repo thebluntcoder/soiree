@@ -52,6 +52,7 @@ from typing import Any
 from app.services.mcp.food import FoodMCPClient
 from app.services.mcp.instamart import InstamartMCPClient
 from app.services.mcp.dineout import DineoutMCPClient
+from app.services.mcp.parse_mcp import parse_restaurant_list
 
 logger = logging.getLogger(__name__)
 
@@ -489,6 +490,11 @@ class MCPOrchestrator:
                     "data": [],
                     "note": f"{service_name} data unavailable — showing partial plan",
                 }
+            elif service_name in ("food", "dineout"):
+                # Real Swiggy MCP returns a text envelope; parse it into the
+                # same {"data": {"restaurants": [...]}} shape the mock emits.
+                # None → not parseable text (mock / error) → keep as-is.
+                context[service_name] = parse_restaurant_list(result) or result
             else:
                 context[service_name] = result
         return context
