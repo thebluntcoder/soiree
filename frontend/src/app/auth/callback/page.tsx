@@ -40,33 +40,30 @@ function CallbackHandler() {
         ? 'http://localhost:8000'
         : (process.env.NEXT_PUBLIC_API_URL || 'https://soiree-production.up.railway.app');
 
-      // The Swiggy token is stored against the logged-in Soirée user, so
-      // this request must carry the Soirée session started before OAuth.
-      const soireeSession = localStorage.getItem('soiree_session')
-      if (!soireeSession) {
-        throw new Error('Log in to Soirée first, then reconnect Swiggy.')
-      }
-
+      // Swiggy OAuth *is* the Soirée login: this call exchanges the code,
+      // identifies the user from the token and returns a fresh Soirée
+      // session. No header needed — there is no session yet.
       const response = await fetch(
         `${apiBase}/api/v1/auth/callback`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Soiree-Session': soireeSession,
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ code, state }),
         }
       )
 
       if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.detail || 'Token exchange failed')
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.detail || `Sign-in failed (HTTP ${response.status})`)
       }
 
       const data = await response.json()
-      localStorage.setItem('soiree_swiggy', 'connected')
-      if (data.expires_at) localStorage.setItem('soiree_swiggy_expires_at', String(data.expires_at))
+      if (!data.soiree_session) throw new Error('No session in the sign-in response')
+      localStorage.setItem('soiree_session', data.soiree_session)
+      localStorage.setItem('soiree_user', JSON.stringify(data.user || null))
+      if (data.swiggy_expires_at) {
+        localStorage.setItem('soiree_swiggy_expires_at', String(data.swiggy_expires_at))
+      }
       setStatus('success')
 
       // Return to the page that started the flow (e.g. /demo.html), not the
@@ -117,7 +114,7 @@ function CallbackHandler() {
             animation: 'spin 0.8s linear infinite',
           }} />
           <p style={{ color: 'rgba(242,234,219,0.5)', fontSize: '14px' }}>
-            Connecting your Swiggy account...
+            Signing you in…
           </p>
         </>
       )}
@@ -125,8 +122,8 @@ function CallbackHandler() {
       {status === 'success' && (
         <>
           <div style={{ fontSize: '32px', color: '#4d8060' }}>✓</div>
-          <p style={{ color: '#4d8060', fontSize: '14px' }}>Connected to Swiggy successfully</p>
-          <p style={{ color: 'rgba(242,234,219,0.3)', fontSize: '12px' }}>Redirecting you back...</p>
+          <p style={{ color: '#4d8060', fontSize: '14px' }}>Signed in</p>
+          <p style={{ color: 'rgba(242,234,219,0.3)', fontSize: '12px' }}>Taking you back…</p>
         </>
       )}
 

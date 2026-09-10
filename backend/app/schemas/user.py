@@ -1,10 +1,9 @@
 """
 schemas/user.py — Request/response shapes for user endpoints.
 
-Soirée login is phone-OTP (see api/v1/endpoints/users.py):
-  OTPRequest  → POST /users/otp/request
-  OTPVerify   → POST /users/otp/verify → AuthResponse
-  UserRead    → GET  /users/me
+Login is Swiggy OAuth (see api/v1/endpoints/auth.py):
+  POST /auth/callback → AuthResponse
+  GET  /users/me      → UserRead
 
 The JSON-string preference fields on the User model (preferred_cuisines,
 dietary_tags) are deserialised to real lists here.
@@ -14,30 +13,17 @@ import json
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
-
-
-class OTPRequest(BaseModel):
-    """POST /users/otp/request"""
-
-    phone: str = Field(..., min_length=6, max_length=20)
-
-
-class OTPVerify(BaseModel):
-    """POST /users/otp/verify"""
-
-    phone: str = Field(..., min_length=6, max_length=20)
-    code: str = Field(..., min_length=4, max_length=8)
-    name: Optional[str] = Field(default=None, max_length=80)
+from pydantic import BaseModel, field_validator
 
 
 class UserRead(BaseModel):
     """Public view of a user."""
 
     id: str
-    phone: str
+    phone: Optional[str] = None
     name: Optional[str] = None
     email: Optional[str] = None
+    swiggy_user_id: Optional[str] = None
     preferred_cuisines: list[str] = []
     dietary_tags: list[str] = []
     default_city: Optional[str] = None
@@ -64,8 +50,9 @@ class UserRead(BaseModel):
 
 
 class AuthResponse(BaseModel):
-    """Returned on successful OTP verify."""
+    """Returned on successful Swiggy sign-in."""
 
     soiree_session: str
     user: UserRead
     is_new: bool
+    swiggy_expires_at: float

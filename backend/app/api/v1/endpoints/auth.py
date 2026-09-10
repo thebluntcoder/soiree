@@ -1,47 +1,59 @@
 """
-api/v1/endpoints/auth.py — connect a logged-in Soirée user's Swiggy account.
+api/v1/endpoints/auth.py — Swiggy OAuth *is* the Soirée login.
 
-Soirée login (phone OTP, see endpoints/users.py) comes first. These
-endpoints then link that user to a Swiggy MCP access token via OAuth 2.1
-PKCE. The token is stored in Redis keyed by the Soirée `user.id` — one
-login owns exactly one Swiggy connection — so the frontend only ever
-sends `X-Soiree-Session`, never a separate Swiggy session id.
+There is no separate account. Signing in means authorising Soirée against
+your Swiggy account (OAuth 2.1 PKCE); the Swiggy MCP access token is a JWT
+whose `sub` claim identifies you. From that we get-or-create a Soirée
+`User` and mint a 30-day Soirée session.
 
 FLOW:
-  1. GET  /api/v1/auth/start      (X-Soiree-Session)
-     → PKCE pair + state, {code_verifier, state, user_id} cached in Redis
-     → returns Swiggy authorize URL
+  1. GET  /api/v1/auth/start            (public)
+     → PKCE pair + state, {code_verifier, state} cached in Redis (2 min)
+     → returns the Swiggy authorize URL
 
   2. user authenticates on Swiggy's page → redirect to
      REDIRECT_URI?code=...&state=...
 
-  3. POST /api/v1/auth/callback   (X-Soiree-Session) {code, state}
-     → verify state, verify it was this same user who started
-     → exchange code → store encrypted token at swiggy_token:{user_id}
+  3. POST /api/v1/auth/callback         (public) {code, state}
+     → verify state, exchange code for the token
+     → decode the token → sub → get-or-create User
+     → store the encrypted token at swiggy_token:{user_id}
+     → mint a Soirée session
+     → { soiree_session, user, is_new, swiggy_expires_at }
 
-  4. GET  /api/v1/auth/status     (X-Soiree-Session)
-     → { connected: bool, expires_at: float | None }
+  4. GET  /api/v1/auth/status           (X-Soiree-Session)
+     → { connected: bool, expires_at }  — is the Swiggy token still live?
 
-  5. POST /api/v1/auth/logout     (X-Soiree-Session)
-     → revoke token with Swiggy, delete swiggy_token:{user_id}
+  5. POST /api/v1/auth/logout           (X-Soiree-Session)
+     → revoke the Swiggy token + the Soirée session
 
-On 401 from Swiggy MCP: token is dead — call get_access_token again, and
-if it returns None send the user back through /auth/start.
+The Swiggy token lasts 5 days with no refresh. When it lapses the Soirée
+session may still be valid, but MCP calls fail — the frontend sees
+`connected: false` from /auth/status and sends the user back through
+/auth/start (one tap if Swiggy still has them logged in).
 """
 
 import json
 import secrets
 import time
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 
 from app.api.v1.deps import current_user
 from app.core.crypto import decrypt, encrypt
+from app.core.database import get_session
+from app.core.ratelimit import rate_limit
 from app.core.redis import get_redis
 from app.models.user import User
+from app.schemas.user import AuthResponse, UserRead
 from app.services.auth.oauth import (
+    TokenIdentityError,
     build_authorize_url,
+    decode_token_identity,
     exchange_code_for_token,
     generate_pkce,
     is_token_expired,
@@ -49,17 +61,16 @@ from app.services.auth.oauth import (
     register_client,
     token_redis_key,
 )
+from app.services.auth.session import create_session, revoke_session
 
 router = APIRouter()
 
-# Redis key for cached client_id from Dynamic Client Registration
 CLIENT_ID_KEY = "swiggy_oauth_client_id"
+PKCE_TTL = 120           # Swiggy authorization code expires in 120s
+TOKEN_TTL = 432000       # 5 days — fallback if the token response omits expires_in
 
-# PKCE state TTL — 2 minutes (code expires in 120s per Swiggy docs)
-PKCE_TTL = 120
-
-# Token TTL — 5 days (432000s per Swiggy docs)
-TOKEN_TTL = 432000
+_START_LIMIT = Depends(rate_limit("auth_start", limit=30, window_seconds=3600))
+_CALLBACK_LIMIT = Depends(rate_limit("auth_callback", limit=30, window_seconds=3600))
 
 
 async def get_or_register_client_id() -> str:
@@ -78,31 +89,27 @@ async def get_or_register_client_id() -> str:
     except Exception as e:  # noqa: BLE001
         raise HTTPException(
             status_code=503,
-            detail=f"Failed to register OAuth client with Swiggy: {str(e)}",
+            detail=f"Failed to register OAuth client with Swiggy: {e}",
         )
 
 
-@router.get("/start", summary="Start linking the current user's Swiggy account")
-async def auth_start(user: User = Depends(current_user)):
+@router.get("/start", summary="Begin sign-in — returns the Swiggy authorize URL",
+            dependencies=[_START_LIMIT])
+async def auth_start():
     """
-    Generate a PKCE challenge and return the Swiggy authorize URL.
-
-    The frontend redirects the user to `authorize_url`; they log in with
-    their Swiggy phone + OTP on Swiggy's consent page.
+    Generate a PKCE challenge and return the Swiggy authorize URL. The
+    frontend redirects the user there to log in on Swiggy's own page.
+    Public — there is no Soirée user yet.
     """
     redis = await get_redis()
 
     code_verifier, code_challenge = generate_pkce()
     state = secrets.token_urlsafe(16)
 
-    # Stash the verifier AND the user id — only the user who started the
-    # flow may finish it (see /auth/callback).
     await redis.setex(
         pkce_redis_key(state),
         PKCE_TTL,
-        json.dumps(
-            {"code_verifier": code_verifier, "state": state, "user_id": user.id}
-        ),
+        json.dumps({"code_verifier": code_verifier, "state": state}),
     )
 
     client_id = await get_or_register_client_id()
@@ -122,58 +129,81 @@ class CallbackRequest(BaseModel):
     state: str
 
 
-@router.post("/callback", summary="Finish linking — exchange code for a token")
+@router.post("/callback", response_model=AuthResponse,
+             summary="Finish sign-in — exchange code, create session",
+             dependencies=[_CALLBACK_LIMIT])
 async def auth_callback(
-    request: CallbackRequest, user: User = Depends(current_user)
+    request: CallbackRequest, db: AsyncSession = Depends(get_session)
 ):
-    """Exchange the authorization code and store the token for this user."""
+    """Exchange the code, identify the user from the token, start a session."""
     redis = await get_redis()
 
     pkce_data_raw = await redis.get(pkce_redis_key(request.state))
     if not pkce_data_raw:
         raise HTTPException(
             status_code=400,
-            detail="Invalid or expired state. Please restart the login flow.",
+            detail="Invalid or expired state. Please restart sign-in.",
         )
-
-    pkce_data = json.loads(pkce_data_raw)
     # Authorization code is single-use — burn the PKCE record now.
     await redis.delete(pkce_redis_key(request.state))
-
-    if pkce_data.get("user_id") != user.id:
-        raise HTTPException(
-            status_code=403,
-            detail="This Swiggy login was started by a different session.",
-        )
-
-    code_verifier = pkce_data["code_verifier"]
+    code_verifier = json.loads(pkce_data_raw)["code_verifier"]
 
     try:
         token_response = await exchange_code_for_token(
             code=request.code, code_verifier=code_verifier
         )
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail=f"Token exchange failed: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Token exchange failed: {e}")
+
+    access_token = token_response["access_token"]
+    try:
+        identity = decode_token_identity(access_token)
+    except TokenIdentityError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Couldn't read your Swiggy identity from the token ({e}).",
+        )
+
+    result = await db.execute(
+        select(User).where(User.swiggy_sub == identity["sub"])
+    )
+    user = result.scalar_one_or_none()
+    is_new = user is None
+    if is_new:
+        user = User(swiggy_sub=identity["sub"], swiggy_user_id=identity["user_id"])
+    else:
+        user.swiggy_user_id = identity["user_id"] or user.swiggy_user_id
+    now = datetime.utcnow()
+    user.last_login_at = now
+    user.updated_at = now
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
 
     expires_in = token_response.get("expires_in", TOKEN_TTL)
     expires_at = time.time() + expires_in
-
     await redis.setex(
         token_redis_key(user.id),
         expires_in,
         json.dumps(
             {
-                "access_token": encrypt(token_response["access_token"]),
+                "access_token": encrypt(access_token),
                 "expires_at": expires_at,
                 "scope": token_response.get("scope", "mcp:tools"),
             }
         ),
     )
 
-    return {"connected": True, "expires_at": expires_at, "message": "Connected to Swiggy"}
+    session_token = await create_session(user.id, user.phone or "")
+    return AuthResponse(
+        soiree_session=session_token,
+        user=UserRead.model_validate(user),
+        is_new=is_new,
+        swiggy_expires_at=expires_at,
+    )
 
 
-@router.get("/status", summary="Is the current user's Swiggy account connected?")
+@router.get("/status", summary="Is the Swiggy token still live?")
 async def auth_status(user: User = Depends(current_user)):
     """{ connected: bool, expires_at: float | None }"""
     redis = await get_redis()
@@ -184,7 +214,6 @@ async def auth_status(user: User = Depends(current_user)):
 
     token_data = json.loads(token_data_raw)
     expires_at = token_data.get("expires_at", 0)
-
     if is_token_expired(expires_at):
         await redis.delete(token_redis_key(user.id))
         return {"connected": False, "expires_at": None, "reason": "expired"}
@@ -192,9 +221,11 @@ async def auth_status(user: User = Depends(current_user)):
     return {"connected": True, "expires_at": expires_at}
 
 
-@router.post("/logout", summary="Disconnect the current user's Swiggy account")
-async def auth_logout(user: User = Depends(current_user)):
-    """Revoke the Swiggy token and forget it."""
+@router.post("/logout", summary="Sign out — revoke the Swiggy token and the session")
+async def auth_logout(
+    user: User = Depends(current_user),
+    x_soiree_session: str | None = Header(None, alias="X-Soiree-Session"),
+):
     import httpx
 
     from app.services.auth.oauth import LOGOUT_URL
@@ -203,9 +234,7 @@ async def auth_logout(user: User = Depends(current_user)):
 
     token_data_raw = await redis.get(token_redis_key(user.id))
     if token_data_raw:
-        token_data = json.loads(token_data_raw)
-        access_token = decrypt(token_data.get("access_token") or "")
-
+        access_token = decrypt(json.loads(token_data_raw).get("access_token") or "")
         if access_token:
             try:
                 async with httpx.AsyncClient() as client:
@@ -214,19 +243,16 @@ async def auth_logout(user: User = Depends(current_user)):
                     )
             except Exception:  # noqa: BLE001 — best-effort revocation
                 pass
-
         await redis.delete(token_redis_key(user.id))
 
-    return {"message": "Disconnected from Swiggy"}
+    await revoke_session(x_soiree_session)
+    return {"message": "Signed out"}
 
 
 async def get_access_token(user_id: str) -> str | None:
     """
-    The Swiggy MCP Bearer token for a Soirée user, or None if they have
-    not connected Swiggy / the token has expired.
-
-    Called by the plan, search and orchestrator layers. On 401 from Swiggy
-    MCP: call this again — None means send the user through /auth/start.
+    The Swiggy MCP Bearer token for a Soirée user, or None if the token has
+    expired (→ the user must sign in again).
     """
     if not user_id:
         return None
@@ -237,9 +263,7 @@ async def get_access_token(user_id: str) -> str | None:
         return None
 
     token_data = json.loads(token_data_raw)
-    expires_at = token_data.get("expires_at", 0)
-
-    if is_token_expired(expires_at):
+    if is_token_expired(token_data.get("expires_at", 0)):
         await redis.delete(token_redis_key(user_id))
         return None
 

@@ -24,25 +24,22 @@ just records the version and moves on.
 | `REDIRECT_URI` | `https://soiree-blue.vercel.app/auth/callback` |
 | `DATABASE_URL` | injected by Railway Postgres (`postgresql://…` is auto-rewritten to `+asyncpg`) |
 | `REDIS_URL` | injected by Railway Redis (`rediss://` → SSL is auto-detected) |
-| `MSG91_AUTH_KEY` | MSG91 auth key — **without it, login OTP codes are only written to the server log** (`GET`-grep the logs to test). |
-| `MSG91_TEMPLATE_ID` | MSG91 flow template id for the OTP SMS. Both MSG91 vars must be set for real SMS. |
-| `DEV_LOGIN_PHONES` | *(optional)* comma-separated numbers that log in with the magic code `000000` even in prod and whose OTP requests skip SMS — for testing on your own phone without an SMS provider. **Clear it before other people can sign up** (startup logs a warning while it's set). |
 
 > If `ALLOWED_ORIGINS` is set as a Railway variable it overrides the default
 > in `config.py`. It accepts a JSON array or a comma-separated string.
 
-**Auth in production.** Every plan / event / search / chat endpoint requires
-a Soirée login (`X-Soiree-Session` from phone-OTP). With `APP_ENV=production`
-the dev magic code `000000` is rejected for everyone **except** numbers in
-`DEV_LOGIN_PHONES` — real MSG91 delivery is otherwise mandatory, so set both
-`MSG91_*` vars before opening it to other people. There is no demo user.
+**Auth in production.** Login is Swiggy OAuth — `GET /auth/start` → user
+authorises on Swiggy → `POST /auth/callback` mints a 30-day Soirée session
+(`X-Soiree-Session`). No SMS provider, no `MSG91_*`, no demo user. Every
+plan / event / search / chat endpoint requires the session. `REDIRECT_URI`
+must be whitelisted with Swiggy.
 
 In `APP_ENV=production` the interactive docs (`/docs`, `/redoc`,
 `/openapi.json`) are disabled. `/plans/generate`, `/plans/refine`,
 `/plans/chat` and `/search/` are rate-limited per caller (Soirée session,
 else Swiggy session, else client IP) — 25 plan generations / 40 refines /
 90 searches per hour; the limiter fails open if Redis is unavailable.
-`/users/otp/request` is capped at 5 / 10 min per caller.
+`/auth/start` and `/auth/callback` are capped at 30/hr per IP.
 
 The plan-generation endpoint no longer hard-codes any CORS header —
 `CORSMiddleware` echoes the request Origin when it is in `ALLOWED_ORIGINS`.
@@ -62,15 +59,21 @@ const API_BASE = location.hostname === 'localhost'
 
 The Next.js app under `frontend/src/` needs `NEXT_PUBLIC_API_URL` and proxies
 `/api/*` to it via `next.config.js` rewrites. **It is not wired to the
-phone-OTP session** and now 401s on every API call — `demo.html` is the only
-working client. The shared `/auth/callback` route (used by both) sends
-`X-Soiree-Session` from `localStorage.soiree_session`.
+session** and 401s on every API call — `demo.html` is the only working
+client. The shared `/auth/callback` route (used by both) POSTs `{code,
+state}` and stores the returned `soiree_session` in `localStorage`.
 
 ## Database migrations after this release
 
-`alembic upgrade head` on deploy runs `a1b2c3d4e5f6` (adds
-`users.last_login_at`). It inspects the table first, so it is a no-op if the
-column already exists — safe on the current prod DB either way.
+`alembic upgrade head` on deploy runs `b2c3d4e5f6a7` — adds
+`users.swiggy_sub` (unique) + `swiggy_user_id`, and relaxes `users.phone`
+from NOT NULL to nullable. Idempotent (inspects the table first), so it is
+safe on the current prod DB.
+
+**After the deploy:** sign in once through Swiggy, then run
+`cd backend && python ../scripts/relink_user.py` (pointed at the prod DB) to
+move the old phone-keyed account's events + plans onto the new
+Swiggy-identified row. Skip it if you don't care about the old data.
 
 ## Swiggy OAuth redirect URIs
 

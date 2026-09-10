@@ -37,9 +37,10 @@ class User(SQLModel, table=True):
     """
     Represents a Soirée user.
 
-    Authentication is phone-based (OTP via MSG91) — no passwords.
-    This is standard for Indian consumer apps (Swiggy, Zepto, CRED all do this).
-    Email is optional, collected later for receipts/notifications.
+    Authentication is Swiggy OAuth — logging in means connecting a Swiggy
+    account, and the Swiggy MCP access token (a JWT) is the identity source.
+    `swiggy_sub` is its stable `sub` claim; that's the natural key. No
+    passwords, no separate phone-OTP.
 
     Preferences are accumulated over time as the user creates more events —
     the AI planner reads these to personalise plans without the user
@@ -53,13 +54,23 @@ class User(SQLModel, table=True):
         primary_key=True,
         description="UUID primary key, generated in Python not Postgres",
     )
-    phone: str = Field(
+    swiggy_sub: Optional[str] = Field(
+        default=None,
         unique=True,
         index=True,
-        description="Indian mobile number, used for OTP auth. E.g. +919876543210",
+        description="Stable `sub` claim from the Swiggy MCP JWT — the login key",
+    )
+    swiggy_user_id: Optional[str] = Field(
+        default=None,
+        description="Swiggy's numeric customer id (`user_id` claim) — for support",
+    )
+    phone: Optional[str] = Field(
+        default=None,
+        index=True,
+        description="Mobile number, if we ever collect one (Swiggy OAuth doesn't give it)",
     )
     name: Optional[str] = Field(
-        default=None, description="Display name, set after first login"
+        default=None, description="Display name"
     )
     email: Optional[str] = Field(
         default=None, description="Optional, for receipts and notifications"
@@ -83,7 +94,7 @@ class User(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     last_login_at: Optional[datetime] = Field(
-        default=None, description="Set on each successful phone-OTP verify"
+        default=None, description="Set on each successful Swiggy login"
     )
     is_active: bool = Field(
         default=True, description="Soft delete flag — False means account deactivated"

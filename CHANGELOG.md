@@ -7,42 +7,43 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### Auth — phone-OTP login, `demo-user-001` removed (breaking, TODO §3)
+### Auth — Swiggy OAuth is the login, `demo-user-001` removed (breaking, TODO §3)
 
 - **Every plan / event / search / chat / order endpoint now requires a
-  logged-in Soirée user.** The hardcoded `demo-user-001` and its
-  `_ensure_demo_user` bootstrap are gone. Requests without a valid
-  `X-Soiree-Session` get `401 {"code": "NOT_LOGGED_IN"}`.
-- **Login is phone-OTP** (`services/auth/otp.py`):
-  `POST /users/otp/request {phone}` → `POST /users/otp/verify {phone, code, name?}`
-  → `{ soiree_session, user, is_new }`. 6-digit code, 5-min TTL, 5 attempts,
-  5-requests-per-10-min per number. Sender is pluggable — **MSG91** when
-  `MSG91_AUTH_KEY` + `MSG91_TEMPLATE_ID` are set, otherwise the code is
-  logged and (outside production) the magic code `000000` verifies.
-- **Sessions** are opaque tokens in Redis (`soiree_session:{token}`, 30-day
-  TTL), sent as `X-Soiree-Session`. `GET /users/me`, `POST /users/logout`.
-- **Swiggy OAuth is now keyed to the Soirée user** — the token lives at
-  `swiggy_token:{user_id}`, so one login owns one Swiggy connection and the
-  frontend no longer juggles a separate Swiggy session id. `/auth/start`,
-  `/auth/callback`, `/auth/status`, `/auth/logout` all require login;
-  `/auth/callback` refuses a `state` that a different session started.
-- **Ownership checks** — `GET /plans/{id}`, `/plans/event/{id}`,
+  logged-in user.** The hardcoded `demo-user-001` and its
+  `_ensure_demo_user` bootstrap are gone. No `X-Soiree-Session` →
+  `401 {"code": "NOT_LOGGED_IN"}`.
+- **Login *is* Swiggy OAuth.** `GET /auth/start` (public) → user authorises
+  on Swiggy's page → `POST /auth/callback {code, state}` exchanges the code,
+  reads the MCP access token (a JWT), keys a Soirée `User` off its `sub`
+  claim (`swiggy_sub`, `swiggy_user_id` columns), and returns
+  `{ soiree_session, user, is_new, swiggy_expires_at }`. No separate
+  account, no phone-OTP, no SMS provider, no TRAI DLT.
+  `decode_token_identity` reads the claims without verifying the signature
+  (the token came straight from Swiggy's token endpoint over TLS); an
+  opaque token → `502` and login fails loudly.
+- **Sessions** are opaque 30-day Redis tokens (`soiree_session:{token}`),
+  sent as `X-Soiree-Session`. `GET /users/me`, `POST /users/logout`
+  (session only), `POST /auth/logout` (also revokes the Swiggy token).
+- **Swiggy token** stays keyed by `user.id` (`swiggy_token:{user_id}`,
+  encrypted, 5-day). `GET /auth/status` → `{ connected, expires_at }`; when
+  it lapses the 30-day session survives and the UI shows "Reconnect Swiggy"
+  (same OAuth).
+- **Ownership checks** unchanged — `GET /plans/{id}`, `/plans/event/{id}`,
   `/events/{id}` (+ PATCH/DELETE), `/orders/{id}` 404 on another user's row.
-- `users.last_login_at` column + idempotent Alembic migration
-  `a1b2c3d4e5f6` (safe whether or not the column already exists).
-- **`demo.html`** — login modal (phone → code → optional name), an account
-  chip in the header, `X-Soiree-Session` on every call, a 401 anywhere
-  re-opens the modal. `scripts/seed.py` no longer seeds a demo user; it
-  mints a dev session for phone `9999999999` (log in with OTP `000000`).
-- **`DEV_LOGIN_PHONES`** — comma-separated allowlist of numbers that log in
-  with `000000` even in production and skip the SMS send. Lets a solo dev
-  test on their own phone without an SMS provider / TRAI DLT registration.
-  Startup logs a warning while it's set in prod.
-- **`scripts/peek_token.py`** — decodes a stored Swiggy access token and
-  prints its JWT claims (or says it's opaque), to check whether Swiggy
-  OAuth alone could identify a user and replace phone-OTP later.
-- The stale Next.js app (`frontend/src/`) now 401s on every API call — it
-  was already flagged stale for OAuth / two-step / refine. Still not wired.
+- Alembic `b2c3d4e5f6a7` — `users.swiggy_sub` (unique) + `swiggy_user_id`,
+  `users.phone` NOT NULL → nullable. Idempotent, batch-mode for SQLite.
+- **`demo.html`** — the login modal is now one "Sign in with Swiggy"
+  button; the header chip reads "Sign in" / the user's name; a stale Swiggy
+  token surfaces an amber "Reconnect Swiggy" chip.
+- **`scripts/`** — `seed.py` mints a dev session against a fake local user
+  (no Swiggy); `peek_token.py` dumps a stored token's JWT claims;
+  `relink_user.py` moves a pre-OAuth account's events + plans onto the new
+  Swiggy-identified row.
+- Removed: `services/auth/otp.py`, `/users/otp/*`, `MSG91_*` +
+  `DEV_LOGIN_PHONES` settings — the brief phone-OTP iteration is gone.
+- The stale Next.js app (`frontend/src/`) still 401s on every API call —
+  only the shared `/auth/callback` route is wired.
 
 ### Security (TODO §3)
 

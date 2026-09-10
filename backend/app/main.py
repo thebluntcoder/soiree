@@ -58,13 +58,6 @@ if IS_PROD and settings.SECRET_KEY == _DEFAULT_SECRET:
         "SECRET_KEY — it keys the encryption for Swiggy tokens at rest."
     )
 
-if IS_PROD and settings.DEV_LOGIN_PHONES:
-    logger.warning(
-        "DEV_LOGIN_PHONES is set in production — %s can log in with the magic "
-        "OTP code. Clear it before opening signups to other people.",
-        settings.DEV_LOGIN_PHONES,
-    )
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
