@@ -15,7 +15,9 @@ the tracking surface.
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import current_user
 from app.core.database import get_session
+from app.models.user import User
 from app.services.plan_service import get_plan
 
 router = APIRouter()
@@ -24,6 +26,7 @@ router = APIRouter()
 @router.get("/{plan_id}", summary="Order / booking status for a plan")
 async def get_order_status(
     plan_id: str,
+    user: User = Depends(current_user),
     session: AsyncSession = Depends(get_session),
 ):
     """
@@ -34,7 +37,7 @@ async def get_order_status(
     "not yet ordered" shape.
     """
     plan = await get_plan(session=session, plan_id=plan_id)
-    if not plan:
+    if not plan or plan.user_id != user.id:
         raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
 
     orders = {

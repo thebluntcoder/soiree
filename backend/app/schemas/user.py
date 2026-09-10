@@ -1,9 +1,10 @@
 """
 schemas/user.py — Request/response shapes for user endpoints.
 
-Phone-OTP auth for Soirée itself is Phase 2 — until then every request is
-attributed to the demo user (see api/v1/endpoints/users.py). This schema
-is the read shape returned by GET /users/me.
+Soirée login is phone-OTP (see api/v1/endpoints/users.py):
+  OTPRequest  → POST /users/otp/request
+  OTPVerify   → POST /users/otp/verify → AuthResponse
+  UserRead    → GET  /users/me
 
 The JSON-string preference fields on the User model (preferred_cuisines,
 dietary_tags) are deserialised to real lists here.
@@ -13,7 +14,21 @@ import json
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
+
+
+class OTPRequest(BaseModel):
+    """POST /users/otp/request"""
+
+    phone: str = Field(..., min_length=6, max_length=20)
+
+
+class OTPVerify(BaseModel):
+    """POST /users/otp/verify"""
+
+    phone: str = Field(..., min_length=6, max_length=20)
+    code: str = Field(..., min_length=4, max_length=8)
+    name: Optional[str] = Field(default=None, max_length=80)
 
 
 class UserRead(BaseModel):
@@ -46,3 +61,11 @@ class UserRead(BaseModel):
             except json.JSONDecodeError:
                 return []
         return v
+
+
+class AuthResponse(BaseModel):
+    """Returned on successful OTP verify."""
+
+    soiree_session: str
+    user: UserRead
+    is_new: bool

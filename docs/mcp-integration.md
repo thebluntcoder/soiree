@@ -17,8 +17,9 @@ Decided per call by one thing: whether an `access_token` was passed to
 There is no `use_mock` flag and no static API key.
 
 ```
-demo.html (X-Session-ID)
-  → endpoint: get_access_token(session_id) from Redis
+demo.html (X-Soiree-Session)
+  → deps.current_user → User
+  → endpoint: get_access_token(user.id) from Redis  (key: swiggy_token:{user_id})
   → event_data["access_token"]
   → MCPOrchestrator.gather_context(access_token=…)
   → client._call_mcp(tool, params, access_token=…)

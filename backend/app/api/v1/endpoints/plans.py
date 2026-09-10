@@ -1,6 +1,10 @@
 """
 api/v1/endpoints/plans.py — Plan generation, persistence and retrieval.
 
+Every endpoint requires a logged-in Soirée user (`Depends(current_user)`).
+The user's Swiggy MCP token, if they have connected one, is looked up by
+`user.id`; without it the planner falls back to mock data.
+
 CONCEPT: How persistence works with streaming
 ----------------------------------------------
 Streaming and DB persistence seem to conflict — streaming sends data
@@ -9,54 +13,52 @@ immediately while DB writes happen after. We solve this by:
   1. Create a Plan record (status=generating) BEFORE streaming starts
      → gives us a plan_id immediately
   2. Stream Claude's response to the frontend chunk by chunk
-     → user sees plan being written in real time
   3. Accumulate the full text server-side while streaming
-     → we build the complete text in memory
   4. After stream completes, parse + save to DB (status=ready)
-     → plan is now persisted
 
 The frontend receives:
-  - First chunk: "data: PLAN_ID:<uuid>\n\n" — so it knows the plan ID
+  - First chunk: "data: PLAN_ID:<uuid>\n\n"
   - Subsequent chunks: plan text tokens
   - Final chunk: "data: [DONE]\n\n"
 
-This way the frontend can show the plan ID and link to it
-even before the plan is fully saved.
-
 ENDPOINTS:
   POST /plans/generate         → stream plan + persist to DB
-  POST /plans/chat             → follow-up chat (streaming)
-  GET  /plans/{plan_id}        → fetch saved plan
-  GET  /plans/event/{event_id} → all plans for an event
+  POST /plans/chat             → follow-up chat (streaming, advisory)
+  POST /plans/refine           → follow-up: answer OR change the plan
+  GET  /plans/history          → recent plans for the current user
+  GET  /plans/event/{event_id} → all plans for one of the user's events
+  GET  /plans/{plan_id}        → fetch a saved plan the user owns
   POST /plans/{plan_id}/order  → place orders (Phase 2)
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Header
-from typing import Optional
+import json as _json
+
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 
-
+from app.api.v1.deps import current_user
+from app.api.v1.endpoints.auth import get_access_token
 from app.core.database import get_session
 from app.core.ratelimit import rate_limit
+from app.lib.parse_plan import parse_plan_text
+from app.models.event import Event
+from app.models.user import User
 from app.schemas.plan import PlanRequest
-from app.services.ai.planner import generate_plan, generate_followup, refine_plan
+from app.services.ai.planner import generate_followup, generate_plan, refine_plan
+from app.services.plan_service import (
+    create_plan,
+    get_event_plans,
+    get_plan,
+    list_user_plans,
+    update_plan_text,
+)
 
 # Each plan generation / refine is 1-2 Claude calls — cap per caller.
 _GENERATE_LIMIT = Depends(rate_limit("plan_generate", limit=25, window_seconds=3600))
 _REFINE_LIMIT = Depends(rate_limit("plan_refine", limit=40, window_seconds=3600))
-from app.services.plan_service import (
-    create_plan,
-    update_plan_text,
-    get_plan,
-    get_event_plans,
-    list_user_plans,
-)
-from app.lib.parse_plan import parse_plan_text
-
-# Temporary demo user until auth is built in Phase 2
-DEMO_USER_ID = "demo-user-001"
 
 router = APIRouter()
 
@@ -68,48 +70,22 @@ router = APIRouter()
 )
 async def create_plan_endpoint(
     request: PlanRequest,
+    user: User = Depends(current_user),
     session: AsyncSession = Depends(get_session),
-    x_session_id: Optional[str] = Header(None, alias="X-Session-ID"),
 ):
     """
     Generate a plan, stream it to the frontend, and persist it to DB.
 
-    Returns SSE stream. First message is the plan_id so the frontend
-    can reference it. Subsequent messages are plan text. Final message
-    is [DONE].
-
-    The event_id in PlanRequest is optional for now — if not provided,
-    the plan is saved without an event link (demo mode).
+    Uses the current user's Swiggy MCP token if they have connected one;
+    otherwise the planner runs on mock data.
     """
-    # Resolve access token if session provided
-    # When session_id is present → real Swiggy MCP calls
-    # When absent → mock data (demo mode)
-    access_token = None
-    if x_session_id:
-        from app.api.v1.endpoints.auth import get_access_token
-        access_token = await get_access_token(x_session_id)
-        if access_token is None:
-            raise HTTPException(
-                status_code=401,
-                detail={
-                    "code": "SWIGGY_TOKEN_EXPIRED",
-                    "message": "Please reconnect your Swiggy account",
-                }
-            )
+    access_token = await get_access_token(user.id)
 
-    # Ensure the demo user exists, then persist THIS request as a fresh Event.
     # One Event per generation call — it captures the exact config the user
     # submitted (occasion, budget, guests, notes …) so the plan's event_id
     # points at real intent, not a frozen first-ever event.
-    import json as _json
-
-    from app.api.v1.endpoints.events import _ensure_demo_user
-    from app.models.event import Event
-
-    await _ensure_demo_user(session)
-
     event = Event(
-        user_id=DEMO_USER_ID,
+        user_id=user.id,
         event_type=request.event_type,
         venue_mode=request.venue_mode,
         location=request.location,
@@ -132,11 +108,10 @@ async def create_plan_endpoint(
     plan_db = await create_plan(
         session=session,
         event_id=event.id,
-        user_id=DEMO_USER_ID,
+        user_id=user.id,
     )
 
     async def event_stream():
-        # Send plan_id as first message so frontend knows the ID
         yield f"data: PLAN_ID:{plan_db.id}\n\n"
 
         accumulated = ""
@@ -147,7 +122,6 @@ async def create_plan_endpoint(
                 accumulated += chunk
                 yield chunk
 
-            # Stream complete — parse and save to DB
             parsed = parse_plan_text(accumulated)
             await update_plan_text(
                 session=session,
@@ -155,8 +129,7 @@ async def create_plan_endpoint(
                 raw_text=accumulated,
                 parsed=parsed,
             )
-
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             yield f"data: [ERROR] {str(e)}\n\n"
 
     return StreamingResponse(
@@ -164,8 +137,7 @@ async def create_plan_endpoint(
         media_type="text/event-stream",
         headers={
             # CORS headers are added by CORSMiddleware (main.py) based on the
-            # request Origin — never hard-code "*" here, it is invalid together
-            # with allow_credentials and masks real misconfiguration.
+            # request Origin — never hard-code "*" here.
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
         },
@@ -186,11 +158,12 @@ class ChatRequest(BaseModel):
     summary="Follow-up chat (streaming, advisory only)",
     dependencies=[_REFINE_LIMIT],
 )
-async def chat_followup(request: ChatRequest):
+async def chat_followup(
+    request: ChatRequest, user: User = Depends(current_user)
+):
     """
     Streaming advisory reply — never changes the plan. Kept for the legacy
-    Next.js client; demo.html uses POST /plans/refine instead, which can
-    also apply the change.
+    Next.js client; demo.html uses POST /plans/refine instead.
     """
 
     async def event_stream():
@@ -214,7 +187,7 @@ async def chat_followup(request: ChatRequest):
     summary="Follow-up: answer a question OR change the plan",
     dependencies=[_REFINE_LIMIT],
 )
-async def refine(request: ChatRequest):
+async def refine(request: ChatRequest, user: User = Depends(current_user)):
     """
     Classify a follow-up message and act on it.
 
@@ -224,8 +197,7 @@ async def refine(request: ChatRequest):
         "patch": { <PlanRequest field overrides> } }
 
     On "modify" the frontend merges `patch` into the stored request and
-    re-runs POST /plans/generate to swap in a new plan. `patch` is already
-    sanitised server-side (only refinable fields, values clamped to range).
+    re-runs POST /plans/generate. `patch` is already sanitised server-side.
     """
     return await refine_plan(
         user_message=request.user_message,
@@ -235,42 +207,44 @@ async def refine(request: ChatRequest):
     )
 
 
-@router.get("/event/{event_id}", summary="All plans for an event")
+@router.get("/event/{event_id}", summary="All plans for one of your events")
 async def get_plans_for_event(
     event_id: str,
+    user: User = Depends(current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """
-    Fetch all plans generated for a specific event.
-    Returns newest first — useful for showing regeneration history.
-    """
-    plans = await get_event_plans(session=session, event_id=event_id)
-    return plans
+    """All plans generated for a specific event you own, newest first."""
+    result = await session.execute(
+        select(Event).where(Event.id == event_id, Event.user_id == user.id)
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail=f"Event {event_id} not found")
+    return await get_event_plans(session=session, event_id=event_id)
 
 
 @router.get("/history", summary="Recent plans for the current user")
 async def get_plan_history(
+    user: User = Depends(current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Fetch the 20 most recent ready plans for the demo user."""
-    plans = await list_user_plans(session=session, user_id=DEMO_USER_ID)
-    return plans
+    """The 20 most recent ready plans for the current user."""
+    return await list_user_plans(session=session, user_id=user.id)
 
 
-@router.get("/{plan_id}", summary="Fetch a saved plan by ID")
+@router.get("/{plan_id}", summary="Fetch a saved plan you own")
 async def get_plan_endpoint(
     plan_id: str,
+    user: User = Depends(current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Retrieve a previously generated and saved plan."""
     plan = await get_plan(session=session, plan_id=plan_id)
-    if not plan:
+    if not plan or plan.user_id != user.id:
         raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
     return plan
 
 
 @router.post("/{plan_id}/order", summary="Place all orders for an approved plan")
-async def place_order(plan_id: str):
+async def place_order(plan_id: str, user: User = Depends(current_user)):
     """
     Agentic ordering — Phase 2 feature.
     Will call: book_table (Dineout) + place_food_order (Food) + checkout (Instamart)

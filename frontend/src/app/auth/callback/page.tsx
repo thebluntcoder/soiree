@@ -40,11 +40,21 @@ function CallbackHandler() {
         ? 'http://localhost:8000'
         : (process.env.NEXT_PUBLIC_API_URL || 'https://soiree-production.up.railway.app');
 
+      // The Swiggy token is stored against the logged-in Soirée user, so
+      // this request must carry the Soirée session started before OAuth.
+      const soireeSession = localStorage.getItem('soiree_session')
+      if (!soireeSession) {
+        throw new Error('Log in to Soirée first, then reconnect Swiggy.')
+      }
+
       const response = await fetch(
         `${apiBase}/api/v1/auth/callback`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Soiree-Session': soireeSession,
+          },
           body: JSON.stringify({ code, state }),
         }
       )
@@ -55,8 +65,8 @@ function CallbackHandler() {
       }
 
       const data = await response.json()
-      localStorage.setItem('soiree_session_id', data.session_id)
-      localStorage.setItem('soiree_expires_at', String(data.expires_at))
+      localStorage.setItem('soiree_swiggy', 'connected')
+      if (data.expires_at) localStorage.setItem('soiree_swiggy_expires_at', String(data.expires_at))
       setStatus('success')
 
       // Return to the page that started the flow (e.g. /demo.html), not the

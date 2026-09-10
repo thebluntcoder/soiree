@@ -24,15 +24,23 @@ just records the version and moves on.
 | `REDIRECT_URI` | `https://soiree-blue.vercel.app/auth/callback` |
 | `DATABASE_URL` | injected by Railway Postgres (`postgresql://…` is auto-rewritten to `+asyncpg`) |
 | `REDIS_URL` | injected by Railway Redis (`rediss://` → SSL is auto-detected) |
+| `MSG91_AUTH_KEY` | MSG91 auth key — **without it, login OTP codes are only written to the server log** (`GET`-grep the logs to test). |
+| `MSG91_TEMPLATE_ID` | MSG91 flow template id for the OTP SMS. Both MSG91 vars must be set for real SMS. |
 
 > If `ALLOWED_ORIGINS` is set as a Railway variable it overrides the default
 > in `config.py`. It accepts a JSON array or a comma-separated string.
 
+**Auth in production.** Every plan / event / search / chat endpoint requires
+a Soirée login (`X-Soiree-Session` from phone-OTP). With `APP_ENV=production`
+the dev magic code `000000` is rejected — real MSG91 delivery is mandatory,
+so set both `MSG91_*` vars before launch. There is no demo user.
+
 In `APP_ENV=production` the interactive docs (`/docs`, `/redoc`,
 `/openapi.json`) are disabled. `/plans/generate`, `/plans/refine`,
-`/plans/chat` and `/search/` are rate-limited per caller (Swiggy session
-id, else client IP) — 25 plan generations / 40 refines / 90 searches per
-hour; the limiter fails open if Redis is unavailable.
+`/plans/chat` and `/search/` are rate-limited per caller (Soirée session,
+else Swiggy session, else client IP) — 25 plan generations / 40 refines /
+90 searches per hour; the limiter fails open if Redis is unavailable.
+`/users/otp/request` is capped at 5 / 10 min per caller.
 
 The plan-generation endpoint no longer hard-codes any CORS header —
 `CORSMiddleware` echoes the request Origin when it is in `ALLOWED_ORIGINS`.
@@ -51,7 +59,16 @@ const API_BASE = location.hostname === 'localhost'
 ```
 
 The Next.js app under `frontend/src/` needs `NEXT_PUBLIC_API_URL` and proxies
-`/api/*` to it via `next.config.js` rewrites.
+`/api/*` to it via `next.config.js` rewrites. **It is not wired to the
+phone-OTP session** and now 401s on every API call — `demo.html` is the only
+working client. The shared `/auth/callback` route (used by both) sends
+`X-Soiree-Session` from `localStorage.soiree_session`.
+
+## Database migrations after this release
+
+`alembic upgrade head` on deploy runs `a1b2c3d4e5f6` (adds
+`users.last_login_at`). It inspects the table first, so it is a no-op if the
+column already exists — safe on the current prod DB either way.
 
 ## Swiggy OAuth redirect URIs
 

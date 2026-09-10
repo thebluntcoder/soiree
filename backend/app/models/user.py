@@ -82,6 +82,9 @@ class User(SQLModel, table=True):
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+    last_login_at: Optional[datetime] = Field(
+        default=None, description="Set on each successful phone-OTP verify"
+    )
     is_active: bool = Field(
         default=True, description="Soft delete flag — False means account deactivated"
     )

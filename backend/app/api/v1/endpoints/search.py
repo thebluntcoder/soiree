@@ -23,8 +23,12 @@ It returns structured restaurant cards ready to render in the UI.
 
 import asyncio
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.api.v1.deps import current_user
+from app.api.v1.endpoints.auth import get_access_token
 from app.core.ratelimit import rate_limit
+from app.models.user import User
 from app.schemas.plan import SearchRequest
 from app.services.mcp.orchestrator import MCPOrchestrator
 from app.services.mcp.parse_mcp import (
@@ -73,7 +77,7 @@ def _rank_key(r: dict, refine_terms: set[str] | None = None):
 )
 async def search_restaurants(
     request: SearchRequest,
-    x_session_id: str | None = Header(None, alias="X-Session-ID"),
+    user: User = Depends(current_user),
 ):
     """
     Fetch restaurant options from Swiggy MCP servers.
@@ -81,7 +85,8 @@ async def search_restaurants(
     Called after user fills the event form but BEFORE plan generation.
     Returns structured restaurant cards the user picks from.
 
-    No Claude call — pure MCP data, fast response (~300ms).
+    No Claude call — pure MCP data, fast response (~300ms). Uses the
+    current user's Swiggy token if connected, else mock data.
 
     Returns:
         {
@@ -90,11 +95,7 @@ async def search_restaurants(
           "venue_mode": "hybrid"
         }
     """
-    access_token = None
-    if x_session_id:
-        from app.api.v1.endpoints.auth import get_access_token
-
-        access_token = await get_access_token(x_session_id)
+    access_token = await get_access_token(user.id)
     orchestrator = get_orchestrator()
 
     context = await orchestrator.gather_context(
@@ -215,18 +216,14 @@ async def restaurant_details(
     restaurant_id: str,
     lat: float | None = None,
     lng: float | None = None,
-    x_session_id: str | None = Header(None, alias="X-Session-ID"),
+    user: User = Depends(current_user),
 ):
     """
     get_restaurant_details for one Dineout restaurant — cuisine, cost,
     amenities, timings, offers. Used by the picker to expand a card the
-    user is considering. Returns {} in demo/mock mode.
+    user is considering. Returns {} when Swiggy isn't connected.
     """
-    access_token = None
-    if x_session_id:
-        from app.api.v1.endpoints.auth import get_access_token
-
-        access_token = await get_access_token(x_session_id)
+    access_token = await get_access_token(user.id)
     if not access_token:
         return {}
     try:
@@ -238,20 +235,14 @@ async def restaurant_details(
     return parse_restaurant_details(raw) or {}
 
 
-@router.get("/_debug", summary="Raw Swiggy MCP text responses (needs a session)")
-async def search_debug(
-    x_session_id: str | None = Header(None, alias="X-Session-ID"),
-):
+@router.get("/_debug", summary="Raw Swiggy MCP text responses (needs Swiggy connected)")
+async def search_debug(user: User = Depends(current_user)):
     """
     Returns the raw, unparsed text Swiggy MCP sends back for a Food and a
     Dineout search — used to tune `parse_mcp.py` against live output.
-    Requires a valid Swiggy session; useless (and returns 400) without one.
+    Requires the current user to have connected Swiggy; 400 otherwise.
     """
-    access_token = None
-    if x_session_id:
-        from app.api.v1.endpoints.auth import get_access_token
-
-        access_token = await get_access_token(x_session_id)
+    access_token = await get_access_token(user.id)
     if not access_token:
         raise HTTPException(
             status_code=400, detail="Connect Swiggy first — this needs a live token."

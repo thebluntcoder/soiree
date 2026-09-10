@@ -1,58 +1,53 @@
 """
-api/v1/endpoints/auth.py — OAuth 2.1 PKCE authentication endpoints.
+api/v1/endpoints/auth.py — connect a logged-in Soirée user's Swiggy account.
+
+Soirée login (phone OTP, see endpoints/users.py) comes first. These
+endpoints then link that user to a Swiggy MCP access token via OAuth 2.1
+PKCE. The token is stored in Redis keyed by the Soirée `user.id` — one
+login owns exactly one Swiggy connection — so the frontend only ever
+sends `X-Soiree-Session`, never a separate Swiggy session id.
 
 FLOW:
-  1. Frontend calls GET /api/v1/auth/start
-     → Backend generates PKCE pair + state
-     → Stores (code_verifier, state) in Redis (2min TTL)
-     → Returns Swiggy authorize URL to frontend
+  1. GET  /api/v1/auth/start      (X-Soiree-Session)
+     → PKCE pair + state, {code_verifier, state, user_id} cached in Redis
+     → returns Swiggy authorize URL
 
-  2. Frontend redirects user to Swiggy authorize URL
-     → User logs in with phone + OTP on Swiggy's page
-     → Swiggy redirects to https://soiree-blue.vercel.app/auth/callback?code=...&state=...
+  2. user authenticates on Swiggy's page → redirect to
+     REDIRECT_URI?code=...&state=...
 
-  3. Frontend /auth/callback page calls POST /api/v1/auth/callback
-     → Backend retrieves code_verifier from Redis using state
-     → Exchanges code for access_token with Swiggy
-     → Stores token in Redis with session_id (5 day TTL)
-     → Returns session_id to frontend
+  3. POST /api/v1/auth/callback   (X-Soiree-Session) {code, state}
+     → verify state, verify it was this same user who started
+     → exchange code → store encrypted token at swiggy_token:{user_id}
 
-  4. Frontend stores session_id in localStorage
-     → Sends session_id with every plan generation request
-     → Backend retrieves Bearer token from Redis for MCP calls
+  4. GET  /api/v1/auth/status     (X-Soiree-Session)
+     → { connected: bool, expires_at: float | None }
 
-  5. GET /api/v1/auth/status?session_id=...
-     → Returns whether session has valid token
-     → Frontend shows "Connected as [phone]" or "Connect Swiggy" button
+  5. POST /api/v1/auth/logout     (X-Soiree-Session)
+     → revoke token with Swiggy, delete swiggy_token:{user_id}
 
-  6. POST /api/v1/auth/logout?session_id=...
-     → Calls Swiggy /auth/logout to revoke token
-     → Deletes token from Redis
-
-DYNAMIC CLIENT REGISTRATION:
-  client_id is obtained once via /auth/register and cached in Redis.
-  On startup, if no client_id in Redis, we register fresh.
-  This is transparent — Swiggy MCP supports DCR automatically.
+On 401 from Swiggy MCP: token is dead — call get_access_token again, and
+if it returns None send the user back through /auth/start.
 """
 
+import json
 import secrets
 import time
-import json
-from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import RedirectResponse, JSONResponse
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from app.api.v1.deps import current_user
 from app.core.crypto import decrypt, encrypt
 from app.core.redis import get_redis
+from app.models.user import User
 from app.services.auth.oauth import (
-    generate_pkce,
     build_authorize_url,
     exchange_code_for_token,
+    generate_pkce,
+    is_token_expired,
+    pkce_redis_key,
     register_client,
     token_redis_key,
-    pkce_redis_key,
-    is_token_expired,
-    REDIRECT_URI,
 )
 
 router = APIRouter()
@@ -68,74 +63,51 @@ TOKEN_TTL = 432000
 
 
 async def get_or_register_client_id() -> str:
-    """
-    Get cached client_id from Redis, or register a new client if not found.
-
-    Dynamic Client Registration happens once per deployment.
-    The client_id is cached in Redis indefinitely — no expiry.
-
-    Returns:
-        client_id string from Swiggy DCR
-    """
+    """Cached client_id from Redis, or a fresh Dynamic Client Registration."""
     redis = await get_redis()
 
-    # Check cache first
     cached = await redis.get(CLIENT_ID_KEY)
     if cached:
         return cached
 
-    # Register new client with Swiggy
     try:
         registration = await register_client()
         client_id = registration["client_id"]
-        # Cache indefinitely — client_id doesn't expire
         await redis.set(CLIENT_ID_KEY, client_id)
         return client_id
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         raise HTTPException(
             status_code=503,
             detail=f"Failed to register OAuth client with Swiggy: {str(e)}",
         )
 
 
-@router.get("/start", summary="Start OAuth flow — returns Swiggy authorize URL")
-async def auth_start():
+@router.get("/start", summary="Start linking the current user's Swiggy account")
+async def auth_start(user: User = Depends(current_user)):
     """
-    Generate PKCE challenge and return the Swiggy authorize URL.
+    Generate a PKCE challenge and return the Swiggy authorize URL.
 
-    Frontend redirects the user to this URL. User logs in with
-    their Swiggy phone number + OTP on Swiggy's consent page.
-
-    Returns:
-        {
-          "authorize_url": "https://mcp.swiggy.com/auth/authorize?...",
-          "state": "<random_state>"
-        }
+    The frontend redirects the user to `authorize_url`; they log in with
+    their Swiggy phone + OTP on Swiggy's consent page.
     """
     redis = await get_redis()
 
-    # Generate PKCE pair
     code_verifier, code_challenge = generate_pkce()
-
-    # Generate random state for CSRF protection
     state = secrets.token_urlsafe(16)
 
-    # Store verifier in Redis — needed when code comes back in callback
-    # TTL: 120 seconds (Swiggy authorization code expires in 120s)
+    # Stash the verifier AND the user id — only the user who started the
+    # flow may finish it (see /auth/callback).
     await redis.setex(
         pkce_redis_key(state),
         PKCE_TTL,
-        json.dumps({"code_verifier": code_verifier, "state": state}),
+        json.dumps(
+            {"code_verifier": code_verifier, "state": state, "user_id": user.id}
+        ),
     )
 
-    # Get or register client_id
     client_id = await get_or_register_client_id()
-
-    # Build Swiggy authorize URL
     authorize_url = build_authorize_url(
-        code_challenge=code_challenge,
-        state=state,
-        client_id=client_id,
+        code_challenge=code_challenge, state=state, client_id=client_id
     )
 
     return {
@@ -150,28 +122,13 @@ class CallbackRequest(BaseModel):
     state: str
 
 
-@router.post("/callback", summary="Handle OAuth callback — exchange code for token")
-async def auth_callback(request: CallbackRequest):
-    """
-    Exchange the authorization code for an access token.
-
-    Called by the frontend /auth/callback page after Swiggy
-    redirects back with ?code=...&state=...
-
-    Args:
-        code: authorization code from Swiggy
-        state: must match what we sent in /auth/start (CSRF check)
-
-    Returns:
-        {
-          "session_id": "<uuid>",
-          "expires_at": <unix_timestamp>,
-          "message": "Connected to Swiggy"
-        }
-    """
+@router.post("/callback", summary="Finish linking — exchange code for a token")
+async def auth_callback(
+    request: CallbackRequest, user: User = Depends(current_user)
+):
+    """Exchange the authorization code and store the token for this user."""
     redis = await get_redis()
 
-    # Retrieve stored PKCE data using state (CSRF + verifier lookup)
     pkce_data_raw = await redis.get(pkce_redis_key(request.state))
     if not pkce_data_raw:
         raise HTTPException(
@@ -180,31 +137,29 @@ async def auth_callback(request: CallbackRequest):
         )
 
     pkce_data = json.loads(pkce_data_raw)
-    code_verifier = pkce_data["code_verifier"]
-
-    # Delete PKCE data — authorization code is single-use
+    # Authorization code is single-use — burn the PKCE record now.
     await redis.delete(pkce_redis_key(request.state))
 
-    # Exchange code for access token
+    if pkce_data.get("user_id") != user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="This Swiggy login was started by a different session.",
+        )
+
+    code_verifier = pkce_data["code_verifier"]
+
     try:
         token_response = await exchange_code_for_token(
-            code=request.code,
-            code_verifier=code_verifier,
+            code=request.code, code_verifier=code_verifier
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"Token exchange failed: {str(e)}")
 
-    # Generate session_id for this user's session
-    session_id = secrets.token_urlsafe(32)
-
-    # Calculate expiry timestamp
     expires_in = token_response.get("expires_in", TOKEN_TTL)
     expires_at = time.time() + expires_in
 
-    # Store token in Redis with session_id as key. The access token is
-    # encrypted at rest (see core/crypto); TTL matches token expiry (5 days).
     await redis.setex(
-        token_redis_key(session_id),
+        token_redis_key(user.id),
         expires_in,
         json.dumps(
             {
@@ -215,89 +170,69 @@ async def auth_callback(request: CallbackRequest):
         ),
     )
 
-    return {
-        "session_id": session_id,
-        "expires_at": expires_at,
-        "message": "Connected to Swiggy successfully",
-    }
+    return {"connected": True, "expires_at": expires_at, "message": "Connected to Swiggy"}
 
 
-@router.get("/status", summary="Check if session has valid Swiggy token")
-async def auth_status(session_id: str = Query(...)):
-    """
-    Check if a session has a valid, non-expired Swiggy access token.
-
-    Frontend calls this on load to show "Connected" or "Connect Swiggy" UI.
-
-    Returns:
-        { "authenticated": bool, "expires_at": float | None }
-    """
+@router.get("/status", summary="Is the current user's Swiggy account connected?")
+async def auth_status(user: User = Depends(current_user)):
+    """{ connected: bool, expires_at: float | None }"""
     redis = await get_redis()
 
-    token_data_raw = await redis.get(token_redis_key(session_id))
+    token_data_raw = await redis.get(token_redis_key(user.id))
     if not token_data_raw:
-        return {"authenticated": False, "expires_at": None}
+        return {"connected": False, "expires_at": None}
 
     token_data = json.loads(token_data_raw)
     expires_at = token_data.get("expires_at", 0)
 
     if is_token_expired(expires_at):
-        # Token expired — delete it and tell frontend to re-auth
-        await redis.delete(token_redis_key(session_id))
-        return {"authenticated": False, "expires_at": None, "reason": "expired"}
+        await redis.delete(token_redis_key(user.id))
+        return {"connected": False, "expires_at": None, "reason": "expired"}
 
-    return {
-        "authenticated": True,
-        "expires_at": expires_at,
-    }
+    return {"connected": True, "expires_at": expires_at}
 
 
-@router.post("/logout", summary="Revoke Swiggy token and clear session")
-async def auth_logout(session_id: str = Query(...)):
-    """
-    Revoke the Swiggy access token and clear the session from Redis.
-    """
+@router.post("/logout", summary="Disconnect the current user's Swiggy account")
+async def auth_logout(user: User = Depends(current_user)):
+    """Revoke the Swiggy token and forget it."""
     import httpx
+
     from app.services.auth.oauth import LOGOUT_URL
 
     redis = await get_redis()
 
-    token_data_raw = await redis.get(token_redis_key(session_id))
+    token_data_raw = await redis.get(token_redis_key(user.id))
     if token_data_raw:
         token_data = json.loads(token_data_raw)
         access_token = decrypt(token_data.get("access_token") or "")
 
-        # Revoke token with Swiggy
         if access_token:
             try:
                 async with httpx.AsyncClient() as client:
                     await client.post(
                         LOGOUT_URL, headers={"Authorization": f"Bearer {access_token}"}
                     )
-            except Exception:
-                pass  # Best-effort revocation — still clear local session
+            except Exception:  # noqa: BLE001 — best-effort revocation
+                pass
 
-        # Always delete from Redis
-        await redis.delete(token_redis_key(session_id))
+        await redis.delete(token_redis_key(user.id))
 
-    return {"message": "Logged out successfully"}
+    return {"message": "Disconnected from Swiggy"}
 
 
-async def get_access_token(session_id: str) -> str | None:
+async def get_access_token(user_id: str) -> str | None:
     """
-    Helper: retrieve access token for a session_id.
+    The Swiggy MCP Bearer token for a Soirée user, or None if they have
+    not connected Swiggy / the token has expired.
 
-    Called by MCP clients to get the Bearer token for API calls.
-    Returns None if session is invalid or token is expired.
-
-    On 401 from Swiggy MCP: call this — if returns None, redirect to /auth/start.
-    On 419 from Swiggy MCP: full re-auth needed (phone + OTP again).
+    Called by the plan, search and orchestrator layers. On 401 from Swiggy
+    MCP: call this again — None means send the user through /auth/start.
     """
-    if not session_id:
+    if not user_id:
         return None
 
     redis = await get_redis()
-    token_data_raw = await redis.get(token_redis_key(session_id))
+    token_data_raw = await redis.get(token_redis_key(user_id))
     if not token_data_raw:
         return None
 
@@ -305,7 +240,15 @@ async def get_access_token(session_id: str) -> str | None:
     expires_at = token_data.get("expires_at", 0)
 
     if is_token_expired(expires_at):
-        await redis.delete(token_redis_key(session_id))
+        await redis.delete(token_redis_key(user_id))
         return None
 
     return decrypt(token_data.get("access_token") or "") or None
+
+
+async def purge_swiggy_token(user_id: str) -> None:
+    """Delete a user's stored Swiggy token — used by account deletion."""
+    if not user_id:
+        return
+    redis = await get_redis()
+    await redis.delete(token_redis_key(user_id))

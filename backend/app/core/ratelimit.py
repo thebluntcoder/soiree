@@ -5,8 +5,9 @@ The plan endpoints each make 1-2 Claude calls. Without a limit, an
 unauthenticated loop runs up the Anthropic bill. This caps requests per
 caller per window.
 
-Caller identity: the Swiggy session id if present, otherwise the client IP
-(best-effort — respects X-Forwarded-For's first hop, which Railway sets).
+Caller identity: the Soirée login session if present, else the Swiggy
+session id, else the client IP (best-effort — respects X-Forwarded-For's
+first hop, which Railway sets).
 
 Fail-open: if Redis is unavailable the request is allowed (better than a
 hard outage). The limiter is a FastAPI dependency:
@@ -38,8 +39,9 @@ def rate_limit(name: str, limit: int, window_seconds: int):
     async def _dep(
         request: Request,
         x_session_id: str | None = Header(None, alias="X-Session-ID"),
+        x_soiree_session: str | None = Header(None, alias="X-Soiree-Session"),
     ) -> None:
-        who = _client_id(request, x_session_id)
+        who = _client_id(request, x_soiree_session or x_session_id)
         bucket = int(time.time()) // window_seconds
         key = f"rl:{name}:{who}:{bucket}"
         try:
