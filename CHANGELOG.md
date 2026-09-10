@@ -7,6 +7,20 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Security (TODO §3)
+- **Swiggy access tokens are encrypted at rest.** They sat in Redis as
+  plaintext JSON for 5 days — anyone with the Redis URL had every
+  connected user's food-delivery account. Now Fernet-encrypted with a key
+  derived from `SECRET_KEY` (`core/crypto.py`); `decrypt()` passes
+  pre-existing plaintext through, so live sessions keep working.
+- **`SECRET_KEY` guard** — the app refuses to boot in
+  `APP_ENV=production` while it's still the default string.
+- **Rate limiting** (`core/ratelimit.py`, Redis fixed-window, per Swiggy
+  session / client IP): 25 `/plans/generate`, 40 `/plans/refine` +
+  `/plans/chat`, 90 `/search/` per hour — the plan endpoints are 1-2
+  Claude calls each. Fails open if Redis is down.
+- `/docs`, `/redoc`, `/openapi.json` are disabled in production.
+
 ### Fixed
 - **The restaurant picker now works with a real Swiggy token (TODO §2).**
   `search.py` expected JSON from every MCP tool, but the real responses

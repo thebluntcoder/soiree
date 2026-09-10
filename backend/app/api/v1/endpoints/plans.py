@@ -39,8 +39,13 @@ from pydantic import BaseModel
 
 
 from app.core.database import get_session
+from app.core.ratelimit import rate_limit
 from app.schemas.plan import PlanRequest
 from app.services.ai.planner import generate_plan, generate_followup, refine_plan
+
+# Each plan generation / refine is 1-2 Claude calls — cap per caller.
+_GENERATE_LIMIT = Depends(rate_limit("plan_generate", limit=25, window_seconds=3600))
+_REFINE_LIMIT = Depends(rate_limit("plan_refine", limit=40, window_seconds=3600))
 from app.services.plan_service import (
     create_plan,
     update_plan_text,
@@ -56,7 +61,11 @@ DEMO_USER_ID = "demo-user-001"
 router = APIRouter()
 
 
-@router.post("/generate", summary="Generate an event plan (streaming + persistent)")
+@router.post(
+    "/generate",
+    summary="Generate an event plan (streaming + persistent)",
+    dependencies=[_GENERATE_LIMIT],
+)
 async def create_plan_endpoint(
     request: PlanRequest,
     session: AsyncSession = Depends(get_session),
@@ -172,7 +181,11 @@ class ChatRequest(BaseModel):
     plan_text: str = ""
 
 
-@router.post("/chat", summary="Follow-up chat (streaming, advisory only)")
+@router.post(
+    "/chat",
+    summary="Follow-up chat (streaming, advisory only)",
+    dependencies=[_REFINE_LIMIT],
+)
 async def chat_followup(request: ChatRequest):
     """
     Streaming advisory reply — never changes the plan. Kept for the legacy
@@ -196,7 +209,11 @@ async def chat_followup(request: ChatRequest):
     )
 
 
-@router.post("/refine", summary="Follow-up: answer a question OR change the plan")
+@router.post(
+    "/refine",
+    summary="Follow-up: answer a question OR change the plan",
+    dependencies=[_REFINE_LIMIT],
+)
 async def refine(request: ChatRequest):
     """
     Classify a follow-up message and act on it.

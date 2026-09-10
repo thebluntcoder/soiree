@@ -23,7 +23,8 @@ It returns structured restaurant cards ready to render in the UI.
 
 import asyncio
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
+from app.core.ratelimit import rate_limit
 from app.schemas.plan import SearchRequest
 from app.services.mcp.orchestrator import MCPOrchestrator
 from app.services.mcp.parse_mcp import (
@@ -33,6 +34,9 @@ from app.services.mcp.parse_mcp import (
 )
 
 router = APIRouter()
+
+# Cheap (no Claude), but "refine" + "show more" can spam it.
+_SEARCH_LIMIT = Depends(rate_limit("search", limit=90, window_seconds=3600))
 _orchestrator = None
 
 # How many options to show in the picker per service.
@@ -62,7 +66,11 @@ def _rank_key(r: dict, refine_terms: set[str] | None = None):
     return (matches, -float(rating), original, float(distance))
 
 
-@router.post("/", summary="Discover restaurant options before plan generation")
+@router.post(
+    "/",
+    summary="Discover restaurant options before plan generation",
+    dependencies=[_SEARCH_LIMIT],
+)
 async def search_restaurants(
     request: SearchRequest,
     x_session_id: str | None = Header(None, alias="X-Session-ID"),

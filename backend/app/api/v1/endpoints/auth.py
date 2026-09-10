@@ -42,6 +42,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import RedirectResponse, JSONResponse
 from pydantic import BaseModel
 
+from app.core.crypto import decrypt, encrypt
 from app.core.redis import get_redis
 from app.services.auth.oauth import (
     generate_pkce,
@@ -200,14 +201,14 @@ async def auth_callback(request: CallbackRequest):
     expires_in = token_response.get("expires_in", TOKEN_TTL)
     expires_at = time.time() + expires_in
 
-    # Store token in Redis with session_id as key
-    # TTL matches token expiry (5 days)
+    # Store token in Redis with session_id as key. The access token is
+    # encrypted at rest (see core/crypto); TTL matches token expiry (5 days).
     await redis.setex(
         token_redis_key(session_id),
         expires_in,
         json.dumps(
             {
-                "access_token": token_response["access_token"],
+                "access_token": encrypt(token_response["access_token"]),
                 "expires_at": expires_at,
                 "scope": token_response.get("scope", "mcp:tools"),
             }
@@ -264,7 +265,7 @@ async def auth_logout(session_id: str = Query(...)):
     token_data_raw = await redis.get(token_redis_key(session_id))
     if token_data_raw:
         token_data = json.loads(token_data_raw)
-        access_token = token_data.get("access_token")
+        access_token = decrypt(token_data.get("access_token") or "")
 
         # Revoke token with Swiggy
         if access_token:
@@ -307,4 +308,4 @@ async def get_access_token(session_id: str) -> str | None:
         await redis.delete(token_redis_key(session_id))
         return None
 
-    return token_data.get("access_token")
+    return decrypt(token_data.get("access_token") or "") or None
