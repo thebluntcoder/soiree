@@ -69,14 +69,16 @@ records what's next. Roughly ordered by priority within each section.
 ## 3. Production readiness (before any public launch)
 
 ### Security
-- [ ] `SECRET_KEY` — refuse to start in `APP_ENV=production` if it's the
-      default `"change-me-in-production"`
-- [ ] Encrypt Swiggy access tokens at rest in Redis (currently plaintext
-      JSON under `swiggy_token:{session_id}`)
-- [ ] Rate limiting on `/plans/generate` and `/plans/refine` — each is
-      1–2 Claude calls; an unauthenticated loop runs up the Anthropic bill
-- [ ] Gate `/docs` + `/redoc` behind auth (or disable) in production
-- [ ] Remove the `demo-user-001` bypass once real auth exists
+- [x] `SECRET_KEY` — the app refuses to boot in `APP_ENV=production` if it's
+      still the default (`main.py`).
+- [x] Swiggy access tokens **encrypted at rest** in Redis — Fernet, key
+      derived from `SECRET_KEY` (`core/crypto.py`); `decrypt()` passes
+      pre-existing plaintext through so old sessions keep working.
+- [x] **Rate limiting** — Redis fixed-window (`core/ratelimit.py`), per
+      Swiggy-session / client-IP: 25 `/plans/generate`, 40 `/plans/refine`
+      + `/plans/chat`, 90 `/search/` per hour. Fails open if Redis is down.
+- [x] `/docs` + `/redoc` + `/openapi.json` disabled in `APP_ENV=production`.
+- [ ] Remove the `demo-user-001` bypass once real auth exists (with §3 Auth).
 
 ### Auth (also Phase 2)
 - [ ] Phone-OTP auth for Soirée itself (MSG91) — replace the single

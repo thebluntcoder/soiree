@@ -19,7 +19,7 @@ just records the version and moves on.
 |---|---|
 | `ANTHROPIC_API_KEY` | `sk-ant-...` |
 | `APP_ENV` | `production` |
-| `SECRET_KEY` | any long random string |
+| `SECRET_KEY` | a **strong random** string — `python -c "import secrets;print(secrets.token_urlsafe(48))"`. It keys the at-rest encryption for Swiggy tokens; **the app refuses to boot in `APP_ENV=production` if it's still the default.** |
 | `ALLOWED_ORIGINS` | `["https://soiree-blue.vercel.app"]` |
 | `REDIRECT_URI` | `https://soiree-blue.vercel.app/auth/callback` |
 | `DATABASE_URL` | injected by Railway Postgres (`postgresql://…` is auto-rewritten to `+asyncpg`) |
@@ -27,6 +27,12 @@ just records the version and moves on.
 
 > If `ALLOWED_ORIGINS` is set as a Railway variable it overrides the default
 > in `config.py`. It accepts a JSON array or a comma-separated string.
+
+In `APP_ENV=production` the interactive docs (`/docs`, `/redoc`,
+`/openapi.json`) are disabled. `/plans/generate`, `/plans/refine`,
+`/plans/chat` and `/search/` are rate-limited per caller (Swiggy session
+id, else client IP) — 25 plan generations / 40 refines / 90 searches per
+hour; the limiter fails open if Redis is unavailable.
 
 The plan-generation endpoint no longer hard-codes any CORS header —
 `CORSMiddleware` echoes the request Origin when it is in `ALLOWED_ORIGINS`.
