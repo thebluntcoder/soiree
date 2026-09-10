@@ -45,9 +45,48 @@ import anthropic
 from app.core.config import settings
 from app.services.ai.prompts import build_system_prompt, build_user_prompt
 from app.services.mcp.orchestrator import MCPOrchestrator
+from app.services.mcp.parse_mcp import parse_restaurant_details
 from app.services.offers.engine import OffersEngine
 
 logger = logging.getLogger(__name__)
+
+
+async def _enrich_dineout(
+    orchestrator: MCPOrchestrator,
+    selected: dict[str, Any],
+    mcp_context: dict[str, Any],
+    access_token: str,
+) -> dict[str, Any]:
+    """
+    Fill a sparse picked-Dineout dict (name/rating/locality only) with the
+    full details — cuisine, cost, amenities, timings, real offers — via
+    get_restaurant_details. Best-effort: returns `selected` unchanged on
+    any failure.
+    """
+    coords = (mcp_context.get("dineout") or {}).get("data", {}).get("coordinates") or {}
+    try:
+        raw = await orchestrator.dineout.get_restaurant_details(
+            selected["id"],
+            lat=coords.get("lat"),
+            lng=coords.get("lng"),
+            access_token=access_token,
+        )
+        details = parse_restaurant_details(raw)
+    except Exception as e:  # noqa: BLE001 — enrichment is optional
+        logger.warning("Dineout enrich failed for %s: %s", selected.get("id"), e)
+        return selected
+
+    if not details:
+        return selected
+    merged = dict(selected)
+    for key, value in details.items():
+        if key == "name" or value in (None, "", [], {}):
+            continue
+        # enriched offers / amenities are richer — prefer them
+        if key in ("offers", "amenities") or not merged.get(key):
+            merged[key] = value
+    merged["_enriched"] = True
+    return merged
 
 # Fields of a PlanRequest that a chat "refine" is allowed to change.
 REFINABLE_FIELDS = {
@@ -161,6 +200,21 @@ async def generate_plan(event_data: dict[str, Any]) -> AsyncIterator[str]:
         if isinstance(offers, Exception):
             offers = []  # offers are non-critical — continue without them
 
+        # ── Stage 1b: Enrich the picked Dineout restaurant ───────────────────
+        # The Dineout search list is sparse (name + rating + locality). If the
+        # user picked one, pull its full details (cuisine, cost, amenities,
+        # timings, real offers) so the [DINEOUT] section isn't threadbare.
+        selected_dineout = event_data.get("selected_dineout")
+        if (
+            isinstance(selected_dineout, dict)
+            and selected_dineout.get("id")
+            and event_data.get("access_token")
+        ):
+            selected_dineout = await _enrich_dineout(
+                orchestrator, selected_dineout, mcp_context,
+                event_data["access_token"],
+            )
+
         # ── Stage 2: Build prompts with full context ──────────────────────────
         # build_user_prompt handles both cases: a restaurant the user picked
         # in the Step 2 picker (passed straight through), or no pick (Claude
@@ -170,7 +224,7 @@ async def generate_plan(event_data: dict[str, Any]) -> AsyncIterator[str]:
             event_data=event_data,
             mcp_context=mcp_context,
             offers=offers,
-            selected_dineout=event_data.get("selected_dineout"),
+            selected_dineout=selected_dineout,
             selected_food=event_data.get("selected_food"),
         )
 

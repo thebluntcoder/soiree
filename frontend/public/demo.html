@@ -2774,7 +2774,8 @@ function dcardHTML(r, i) {
               ${typeof s === 'object' ? s.time : s}
             </span>`).join('')}
         </div>` : ''}
-      ${r.offers?.length ? `<div style="font-size:11px;color:var(--green2);margin-top:8px">🏷 ${r.offers[0].description}</div>` : ''}
+      ${r.offers?.length ? `<div style="font-size:11px;color:var(--green2);margin-top:8px">🏷 ${(r.offers[0].description || r.offers[0])}</div>` : ''}
+      ${r._detail && r.amenities?.length ? `<div style="font-size:11px;color:var(--text2);margin-top:6px">${r.amenities.slice(0,4).join(' · ')}${r.timings ? '  ·  ' + r.timings : ''}</div>` : ''}
     </div>`;
 }
 
@@ -2926,6 +2927,31 @@ async function morePickerOptions(svc) {
 function selectDineout(i) {
   S.selectedDineout = S.searchData.dineout[i];
   markCard('dcard-', i);
+  loadDineoutDetail();
+}
+
+// On select, pull the restaurant's full details (cuisine, cost, amenities,
+// offers) — the Dineout list only has name + rating + locality.
+async function loadDineoutDetail() {
+  const r = S.selectedDineout;
+  if (!r?.id || !S.sessionId || r._detail) return;
+  const c = S.searchData.dineout_coordinates || {};
+  const q = c.lat != null ? `?lat=${c.lat}&lng=${c.lng}` : '';
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/search/restaurant/${encodeURIComponent(r.id)}${q}`,
+      { headers: { 'X-Session-ID': S.sessionId } });
+    const d = await res.json();
+    r._detail = true;
+    if (d && Object.keys(d).length) {
+      r.cuisine = r.cuisine || d.cuisine;
+      r.cost_for_two = r.cost_for_two || d.cost_for_two;
+      if (d.offers?.length) r.offers = d.offers;
+      r.amenities = d.amenities || [];
+      r.timings = d.timings;
+      r.address = d.address;
+      renderPickerCards();
+    }
+  } catch(e) {}
 }
 
 function selectFood(i) {

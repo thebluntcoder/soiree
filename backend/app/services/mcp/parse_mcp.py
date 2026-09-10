@@ -235,3 +235,82 @@ def parse_restaurant_list(response: Any) -> dict[str, Any] | None:
     if coords:
         data["coordinates"] = coords
     return {"data": data}
+
+
+# ── get_restaurant_details: "Key: Value" text ───────────────────────────────
+
+_DETAIL_DIST = re.compile(r"^\s*([\d.]+)\s*km\s*[•·|-]\s*", re.IGNORECASE)
+
+
+def parse_restaurant_details(response: Any) -> dict[str, Any] | None:
+    """
+    Parse a Dineout get_restaurant_details response. Real format is
+    "Key: Value" lines:
+
+        Restaurant: Dwarka Restaurant
+        Cuisines: North Indian, Chinese
+        Address: 15.2 km • 1st floor, Sector 10, Dwarka, Delhi
+        Rating: 4.3
+        Cost for two: ₹500 for two
+        Timings: Open till 11PM
+        Offers: Flat 25% off on Total Bill; Flat 20% off ...
+        Amenities / Highlights: Reservation available, Parking available, ...
+
+    Returned keys use the same snake_case the picker/prompt already use, so
+    the caller can merge straight into a `selected_dineout` dict. None if
+    it isn't parseable text.
+    """
+    text = mcp_text(response)
+    if not text or ":" not in text:
+        return None
+
+    fields: dict[str, str] = {}
+    for line in text.splitlines():
+        if ":" not in line or line.lstrip().startswith(("⚠", "When ", "Do NOT")):
+            continue
+        key, _, val = line.partition(":")
+        key = key.strip().lower()
+        val = val.strip()
+        if key and val:
+            fields[key] = val
+
+    if "restaurant" not in fields and "restaurant name" not in fields:
+        return None
+
+    out: dict[str, Any] = {"name": fields.get("restaurant") or fields.get("restaurant name")}
+    if rid := (fields.get("restaurant id") or fields.get("id")):
+        out["id"] = rid
+    if cui := fields.get("cuisines") or fields.get("cuisine"):
+        out["cuisine"] = cui
+    if m := _RATING.search(fields.get("rating", "")):
+        out["rating"] = float(m.group(1))
+    elif fields.get("rating", "").replace(".", "").isdigit():
+        out["rating"] = float(fields["rating"])
+    if cost := _int_from(fields.get("cost for two") or fields.get("cost")):
+        out["cost_for_two"] = cost
+    if addr := fields.get("address"):
+        dm = _DETAIL_DIST.match(addr)
+        if dm:
+            out["distance_km"] = float(dm.group(1))
+            addr = _DETAIL_DIST.sub("", addr).strip()
+        out["address"] = addr
+    if tim := fields.get("timings") or fields.get("timing"):
+        out["timings"] = tim
+    if off := fields.get("offers"):
+        seen: set[str] = set()
+        offers = []
+        for part in re.split(r"[;|]", off):
+            part = part.strip()
+            if part and part.lower() not in seen:
+                seen.add(part.lower())
+                offers.append({"description": part})
+        if offers:
+            out["offers"] = offers
+    amen = fields.get("amenities / highlights") or fields.get("amenities") or fields.get(
+        "highlights"
+    )
+    if amen:
+        out["amenities"] = [a.strip() for a in amen.split(",") if a.strip()]
+    if cm := _COORDS.search(text):
+        out["coordinates"] = {"lat": float(cm.group(1)), "lng": float(cm.group(2))}
+    return out

@@ -28,6 +28,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   text + `get_restaurant_details` for tuning the parser.
 
 ### Added
+- **Dineout restaurant details (TODO §2).** The Dineout search list only
+  has name + rating + locality — so `[DINEOUT]` plan sections were thin.
+  `parse_mcp.parse_restaurant_details` reads the `get_restaurant_details`
+  "Key: Value" text (cuisine, cost for two, address, timings, deduped
+  offers, amenities). `/plans/generate` fetches it for the picked
+  restaurant and merges it in before the prompt; `GET /search/restaurant/{id}`
+  lets the picker expand a card with the same info when you select it.
 - **Picker: refine + "show more" (TODO §2).** If none of the first
   restaurants fit, you can now type what you want ("rooftop", "Italian",
   "quiet & fancy", a name) and re-search, or page through more options.
