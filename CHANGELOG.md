@@ -34,6 +34,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   chip in the header, `X-Soiree-Session` on every call, a 401 anywhere
   re-opens the modal. `scripts/seed.py` no longer seeds a demo user; it
   mints a dev session for phone `9999999999` (log in with OTP `000000`).
+- **`DEV_LOGIN_PHONES`** — comma-separated allowlist of numbers that log in
+  with `000000` even in production and skip the SMS send. Lets a solo dev
+  test on their own phone without an SMS provider / TRAI DLT registration.
+  Startup logs a warning while it's set in prod.
+- **`scripts/peek_token.py`** — decodes a stored Swiggy access token and
+  prints its JWT claims (or says it's opaque), to check whether Swiggy
+  OAuth alone could identify a user and replace phone-OTP later.
 - The stale Next.js app (`frontend/src/`) now 401s on every API call — it
   was already flagged stale for OAuth / two-step / refine. Still not wired.
 

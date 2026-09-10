@@ -116,10 +116,39 @@ class TestOtpFlow:
     @pytest.mark.asyncio
     async def test_magic_code_only_outside_prod(self, fake_redis, monkeypatch):
         monkeypatch.setattr(otp_mod, "_is_prod", lambda: False)
-        assert await otp_mod.verify_otp("+915555555555", otp_mod.DEV_MAGIC_CODE) is True
+        assert await otp_mod.verify_otp("+919555555555", otp_mod.DEV_MAGIC_CODE) is True
 
         monkeypatch.setattr(otp_mod, "_is_prod", lambda: True)
-        assert await otp_mod.verify_otp("+915555555555", otp_mod.DEV_MAGIC_CODE) is False
+        assert await otp_mod.verify_otp("+919555555555", otp_mod.DEV_MAGIC_CODE) is False
+
+    @pytest.mark.asyncio
+    async def test_dev_login_phone_bypasses_in_prod(self, fake_redis, monkeypatch):
+        monkeypatch.setattr(otp_mod, "_is_prod", lambda: True)
+        monkeypatch.setattr(
+            otp_mod.settings, "DEV_LOGIN_PHONES", "9998887777, +91 90000 00001"
+        )
+        # allowlisted (either format) → magic code works even in prod
+        assert await otp_mod.verify_otp("+919998887777", otp_mod.DEV_MAGIC_CODE) is True
+        assert await otp_mod.verify_otp("+919000000001", otp_mod.DEV_MAGIC_CODE) is True
+        # everyone else → still rejected in prod
+        assert await otp_mod.verify_otp("+919111111111", otp_mod.DEV_MAGIC_CODE) is False
+
+    @pytest.mark.asyncio
+    async def test_dev_login_phone_skips_sms(self, fake_redis, monkeypatch):
+        monkeypatch.setattr(otp_mod, "_is_prod", lambda: True)
+        monkeypatch.setattr(otp_mod.settings, "DEV_LOGIN_PHONES", "9998887777")
+        sent: list[str] = []
+
+        class Sender:
+            async def send(self, phone, code):
+                sent.append(phone)
+
+        monkeypatch.setattr(otp_mod, "get_otp_sender", lambda: Sender())
+
+        await otp_mod.issue_otp("+919998887777")
+        assert sent == []  # no SMS burned on a dev-login number
+        await otp_mod.issue_otp("+919111111111")
+        assert sent == ["+919111111111"]  # a normal number still sends
 
 
 class _CollectSender:

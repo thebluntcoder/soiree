@@ -394,7 +394,10 @@ curl http://localhost:8000/health
    `POST /users/logout`. SMS goes via **MSG91** when `MSG91_AUTH_KEY` +
    `MSG91_TEMPLATE_ID` are set; otherwise the code is logged and, when
    `APP_ENV != production`, the magic code **`000000`** verifies.
-   `scripts/seed.py` mints a dev session (phone `9999999999`).
+   `DEV_LOGIN_PHONES` extends that magic code to named numbers in prod too
+   (solo testing without an SMS provider). `scripts/seed.py` mints a dev
+   session (phone `9999999999`); `scripts/peek_token.py` dumps a stored
+   Swiggy token's JWT claims.
 
 2. **Swiggy MCP access.** No static API key — each user authorises Soirée
    through Swiggy's own OAuth 2.1 PKCE flow (phone + OTP). The resulting

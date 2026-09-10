@@ -12,6 +12,15 @@ Only delivery differs, so it lives behind `OTPSender`:
 
 Codes are 6 digits, valid `OTP_TTL_SECONDS`, max `OTP_MAX_ATTEMPTS` verify
 tries, and requests to the same number are throttled (see the endpoint).
+
+CONCEPT: DEV_LOGIN_PHONES
+------------------------
+Real SMS to Indian numbers needs an SMS provider *and* TRAI DLT
+registration (a business thing). An individual dev has neither. So
+`settings.DEV_LOGIN_PHONES` is a comma-separated allowlist of numbers that
+may log in with the magic code `000000` **even in production**, and whose
+OTP requests skip the SMS send entirely. Everyone else still needs a real
+code. Leave it empty in a deployment meant for other people.
 """
 
 import logging
@@ -94,12 +103,35 @@ def _is_prod() -> bool:
     return settings.APP_ENV == "production"
 
 
+def _dev_login_phones() -> set[str]:
+    """Normalised numbers from settings.DEV_LOGIN_PHONES (bad entries dropped)."""
+    out: set[str] = set()
+    for part in (settings.DEV_LOGIN_PHONES or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            out.add(normalize_phone(part))
+        except ValueError:
+            logger.warning("DEV_LOGIN_PHONES: %r is not a valid number — ignored", part)
+    return out
+
+
+def _is_dev_login(phone: str) -> bool:
+    return phone in _dev_login_phones()
+
+
 async def issue_otp(phone: str) -> None:
     """Generate a code, store it, and send it. Overwrites any pending code."""
     code = f"{secrets.randbelow(1_000_000):06d}"
     redis = await get_redis()
     await redis.setex(_OTP_KEY.format(phone=phone), OTP_TTL_SECONDS, code)
     await redis.delete(_ATTEMPTS_KEY.format(phone=phone))
+    if _is_dev_login(phone):
+        logger.info(
+            "DEV_LOGIN_PHONES: %s — skipping SMS, log in with %s", phone, DEV_MAGIC_CODE
+        )
+        return
     await get_otp_sender().send(phone, code)
 
 
@@ -109,7 +141,7 @@ async def verify_otp(phone: str, code: str) -> bool:
     success; counts failures and locks out after OTP_MAX_ATTEMPTS.
     """
     code = "".join(c for c in code if c.isdigit())
-    if not _is_prod() and code == DEV_MAGIC_CODE:
+    if code == DEV_MAGIC_CODE and (not _is_prod() or _is_dev_login(phone)):
         return True
 
     redis = await get_redis()
