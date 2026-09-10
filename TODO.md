@@ -106,8 +106,19 @@ records what's next. Roughly ordered by priority within each section.
 - [x] `demo.html` login modal (phone → OTP → name), account chip, 401 →
       re-prompt, `scripts/seed.py` now mints a dev session (phone
       `9999999999`, OTP `000000`).
-- [ ] MSG91 account + real template ID (env vars wired, sender untested
-      against the live API).
+- [x] `DEV_LOGIN_PHONES` — allowlisted numbers use `000000` in prod too and
+      skip the SMS send (solo testing without an SMS provider / DLT).
+      Startup warns while it's set. `main.py`, `services/auth/otp.py`.
+- [ ] **Decide: Swiggy OAuth as the *sole* login?** One Swiggy OTP would
+      cover both "log into Soirée" and "connect Swiggy" — no MSG91, no DLT,
+      no cost. Blocker: does the Swiggy access token carry a stable user id?
+      Run `scripts/peek_token.py` against a real token. If it's a JWT with a
+      `sub` / customer id / phone → `/auth/start` goes public, `/auth/callback`
+      derives the user + mints the 30-day session, delete `otp.py`. If the
+      token is opaque → keep phone-OTP, lean on "already-logged-into-Swiggy
+      makes connect a one-tap".
+- [ ] MSG91 account + real template ID (only if phone-OTP survives the
+      decision above — env vars wired, sender untested against the live API).
 - [ ] Wire the stale Next.js app (`frontend/src/`) to the session, or drop
       it — it now 401s on every call (already flagged stale for OAuth).
 

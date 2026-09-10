@@ -26,14 +26,16 @@ just records the version and moves on.
 | `REDIS_URL` | injected by Railway Redis (`rediss://` → SSL is auto-detected) |
 | `MSG91_AUTH_KEY` | MSG91 auth key — **without it, login OTP codes are only written to the server log** (`GET`-grep the logs to test). |
 | `MSG91_TEMPLATE_ID` | MSG91 flow template id for the OTP SMS. Both MSG91 vars must be set for real SMS. |
+| `DEV_LOGIN_PHONES` | *(optional)* comma-separated numbers that log in with the magic code `000000` even in prod and whose OTP requests skip SMS — for testing on your own phone without an SMS provider. **Clear it before other people can sign up** (startup logs a warning while it's set). |
 
 > If `ALLOWED_ORIGINS` is set as a Railway variable it overrides the default
 > in `config.py`. It accepts a JSON array or a comma-separated string.
 
 **Auth in production.** Every plan / event / search / chat endpoint requires
 a Soirée login (`X-Soiree-Session` from phone-OTP). With `APP_ENV=production`
-the dev magic code `000000` is rejected — real MSG91 delivery is mandatory,
-so set both `MSG91_*` vars before launch. There is no demo user.
+the dev magic code `000000` is rejected for everyone **except** numbers in
+`DEV_LOGIN_PHONES` — real MSG91 delivery is otherwise mandatory, so set both
+`MSG91_*` vars before opening it to other people. There is no demo user.
 
 In `APP_ENV=production` the interactive docs (`/docs`, `/redoc`,
 `/openapi.json`) are disabled. `/plans/generate`, `/plans/refine`,

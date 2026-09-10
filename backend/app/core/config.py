@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     MSG91_AUTH_KEY: str = ""
     MSG91_TEMPLATE_ID: str = ""
 
+    # Dev-only bypass: comma-separated phone numbers (any format) that may
+    # log in with the magic code 000000 EVEN in production. Lets an
+    # individual dev test on their own phone without an SMS provider /
+    # DLT registration. Leave empty in a real deployment.
+    DEV_LOGIN_PHONES: str = ""
+
     # Cache TTLs in seconds
     OFFERS_CACHE_TTL: int = 300  # 5 min — offers change fast
     RESTAURANT_CACHE_TTL: int = 3600  # 1 hr
