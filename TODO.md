@@ -78,19 +78,47 @@ records what's next. Roughly ordered by priority within each section.
       Swiggy-session / client-IP: 25 `/plans/generate`, 40 `/plans/refine`
       + `/plans/chat`, 90 `/search/` per hour. Fails open if Redis is down.
 - [x] `/docs` + `/redoc` + `/openapi.json` disabled in `APP_ENV=production`.
-- [ ] Remove the `demo-user-001` bypass once real auth exists (with §3 Auth).
+- [x] **`demo-user-001` removed entirely** — every plan / event / search /
+      chat / order endpoint now depends on `current_user` (401 without a
+      valid Soirée session). See Auth below.
+- [x] Rate limiter keys on the Soirée session first (`X-Soiree-Session`),
+      then legacy Swiggy session, then IP.
+- [x] Swiggy OAuth ownership check — the user who starts `/auth/start`
+      must be the one who finishes `/auth/callback` (state blob carries the
+      `user_id`).
 
-### Auth (also Phase 2)
-- [ ] Phone-OTP auth for Soirée itself (MSG91) — replace the single
-      hardcoded demo user with real `users` rows
-- [ ] Link a `session_id` / user to their generated events & plans
+### Auth ✅ (full replacement — phone-OTP)
+
+- [x] Phone-OTP login for Soirée itself — `POST /users/otp/request` →
+      `POST /users/otp/verify` → `{ soiree_session, user, is_new }`.
+      Pluggable sender: **MSG91** when `MSG91_AUTH_KEY` + `MSG91_TEMPLATE_ID`
+      are set, else **Console** (logs the code; magic code `000000` accepted
+      when `APP_ENV != production`). Code TTL 5 min, 5 attempts, per-number
+      request throttle (5 / 10 min).
+- [x] Opaque session token in Redis (`soiree_session:{token}`, 30-day TTL),
+      sent as `X-Soiree-Session`. `GET /users/me`, `POST /users/logout`.
+- [x] Swiggy OAuth token keyed by `user.id` (`swiggy_token:{user_id}`) — one
+      Soirée login owns one Swiggy connection; `/auth/*` all require login.
+- [x] Events & plans filtered by `user.id` with ownership checks (404 on
+      someone else's plan/event).
+- [x] `last_login_at` column + idempotent Alembic migration
+      (`a1b2c3d4e5f6`).
+- [x] `demo.html` login modal (phone → OTP → name), account chip, 401 →
+      re-prompt, `scripts/seed.py` now mints a dev session (phone
+      `9999999999`, OTP `000000`).
+- [ ] MSG91 account + real template ID (env vars wired, sender untested
+      against the live API).
+- [ ] Wire the stale Next.js app (`frontend/src/`) to the session, or drop
+      it — it now 401s on every call (already flagged stale for OAuth).
 
 ### Legal / privacy
 - [ ] Privacy policy + explicit consent screen before Swiggy OAuth
 - [ ] Data-retention & deletion policy (India DPDP Act 2023; GDPR if any
       EU users) — storing an OAuth token for a food-delivery account is
       sensitive-data processing
-- [ ] "Disconnect & delete my data" that actually purges Redis + rows
+- [ ] `DELETE /users/me` — "disconnect & delete my data" that purges
+      events + plans + the Swiggy token + the session
+      (`purge_swiggy_token` helper already exists)
 
 ### Observability / cost
 - [ ] Product analytics (PostHog — OSS, self/EU-hostable): funnel
@@ -132,8 +160,12 @@ records what's next. Roughly ordered by priority within each section.
 
 ## 6. Testing
 
-- [ ] OAuth flow tests — `services/auth/oauth.py` + the `/auth/*`
-      endpoints are still uncovered
+- [x] Auth tests — `tests/unit/test_auth.py` covers `normalize_phone`,
+      OTP issue/verify/lockout/magic-code, session create/resolve/revoke,
+      and the `current_user` gate (401 paths). Rate-limiter precedence in
+      `test_security.py`.
+- [ ] `/auth/*` endpoint tests — `services/auth/oauth.py` (PKCE, token
+      exchange) + the Swiggy-link endpoints still need a mocked-httpx test
 - [ ] `refine_plan` test with a mocked Anthropic client (patch classify →
       assert patch sanitising + action routing)
 - [ ] `tests/integration/test_mcp.py` — a real-token contract test if a

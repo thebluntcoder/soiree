@@ -1629,7 +1629,11 @@ input[type=range]::-webkit-slider-thumb:hover {
     <span class="logo-wordmark">SOIRÉE</span>
   </div>
   <div class="header-right">
-    <div id="swiggyAuthBtn" onclick="handleSwiggyAuth()" style="display:flex;align-items:center;gap:7px;padding:6px 16px;border:1px solid var(--border2);border-radius:20px;font-size:11px;letter-spacing:1px;color:var(--text2);cursor:pointer;transition:all 0.2s;margin-right:8px;font-family:'DM Sans',sans-serif;">
+    <div id="acctBtn" onclick="handleAccount()" style="display:flex;align-items:center;gap:7px;padding:6px 16px;border:1px solid var(--border2);border-radius:20px;font-size:11px;letter-spacing:1px;color:var(--text2);cursor:pointer;transition:all 0.2s;margin-right:8px;font-family:'DM Sans',sans-serif;">
+        <span id="acctDot" style="width:6px;height:6px;border-radius:50%;background:var(--text3);transition:all 0.3s"></span>
+        <span id="acctLabel">Log in</span>
+    </div>
+    <div id="swiggyAuthBtn" onclick="handleSwiggyAuth()" style="display:none;align-items:center;gap:7px;padding:6px 16px;border:1px solid var(--border2);border-radius:20px;font-size:11px;letter-spacing:1px;color:var(--text2);cursor:pointer;transition:all 0.2s;margin-right:8px;font-family:'DM Sans',sans-serif;">
         <span id="swiggyAuthDot" style="width:6px;height:6px;border-radius:50%;background:var(--text3);transition:all 0.3s"></span>
         <span id="swiggyAuthLabel">Connect Swiggy</span>
     </div>
@@ -1893,6 +1897,43 @@ input[type=range]::-webkit-slider-thumb:hover {
   </section>
 </div>
 
+<!-- Login modal (phone OTP) -->
+<div id="loginModal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(6,4,2,0.72);backdrop-filter:blur(8px);align-items:center;justify-content:center;padding:20px;font-family:'DM Sans',sans-serif;">
+  <div style="width:100%;max-width:380px;background:var(--surface);border:1px solid var(--gold-dim);border-radius:16px;padding:28px 26px;box-shadow:0 24px 80px rgba(0,0,0,0.5);">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;">
+      <div style="font-family:'Cormorant Garamond',serif;font-size:22px;letter-spacing:3px;color:var(--gold);">SOIRÉE</div>
+      <div onclick="closeLogin()" style="cursor:pointer;color:var(--text3);font-size:18px;line-height:1;">✕</div>
+    </div>
+    <div style="font-size:13px;color:var(--text2);line-height:1.6;margin-bottom:20px;">Log in with your mobile number to plan and save events.</div>
+
+    <div id="loginStepPhone">
+      <label style="display:block;font-size:11px;letter-spacing:1px;color:var(--text3);text-transform:uppercase;margin-bottom:7px;">Mobile number</label>
+      <input id="loginPhone" type="tel" inputmode="numeric" autocomplete="tel" placeholder="9876543210"
+        onkeydown="if(event.key==='Enter')requestOtp()"
+        style="width:100%;padding:12px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:15px;font-family:'DM Mono',monospace;letter-spacing:1px;box-sizing:border-box;">
+      <button id="loginSendBtn" onclick="requestOtp()"
+        style="width:100%;margin-top:14px;padding:12px;background:linear-gradient(135deg,var(--gold2),var(--gold3));border:none;border-radius:10px;color:#1a1006;font-size:13px;font-weight:600;letter-spacing:1px;cursor:pointer;">Send code</button>
+    </div>
+
+    <div id="loginStepCode" style="display:none;">
+      <div id="loginCodeHint" style="font-size:12px;color:var(--text3);margin-bottom:12px;"></div>
+      <label style="display:block;font-size:11px;letter-spacing:1px;color:var(--text3);text-transform:uppercase;margin-bottom:7px;">6-digit code</label>
+      <input id="loginCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000"
+        onkeydown="if(event.key==='Enter')verifyOtp()"
+        style="width:100%;padding:12px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:18px;font-family:'DM Mono',monospace;letter-spacing:6px;text-align:center;box-sizing:border-box;">
+      <label style="display:block;font-size:11px;letter-spacing:1px;color:var(--text3);text-transform:uppercase;margin:14px 0 7px;">Your name <span style="text-transform:none;letter-spacing:0;">(optional)</span></label>
+      <input id="loginName" type="text" autocomplete="name" placeholder="Alex"
+        onkeydown="if(event.key==='Enter')verifyOtp()"
+        style="width:100%;padding:12px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:15px;box-sizing:border-box;">
+      <button id="loginVerifyBtn" onclick="verifyOtp()"
+        style="width:100%;margin-top:16px;padding:12px;background:linear-gradient(135deg,var(--gold2),var(--gold3));border:none;border-radius:10px;color:#1a1006;font-size:13px;font-weight:600;letter-spacing:1px;cursor:pointer;">Verify &amp; continue</button>
+      <div onclick="showLoginStep('phone')" style="text-align:center;margin-top:12px;font-size:12px;color:var(--text3);cursor:pointer;">← Change number</div>
+    </div>
+
+    <div id="loginErr" style="margin-top:12px;font-size:12px;color:var(--coral2);line-height:1.5;"></div>
+  </div>
+</div>
+
 <script>
 // ── STATE ─────────────────────────────────────────────────────────
 const API_BASE = window.location.hostname === 'localhost'
@@ -1904,8 +1945,10 @@ const S = {
   location: '',
   lat: null,
   lng: null,
-  sessionId: localStorage.getItem('soiree_session_id') || null,
+  soireeSession: localStorage.getItem('soiree_session') || null,
+  soireeUser: (() => { try { return JSON.parse(localStorage.getItem('soiree_user') || 'null'); } catch { return null; } })(),
   swiggyConnected: false,
+  otpPhone: null,
   alcohol: 'any',
   hour: 20,
   budget: 3000,
@@ -1926,9 +1969,155 @@ const S = {
 window.addEventListener('load', () => {
   setTimeout(() => {
     document.getElementById('loadScreen').classList.add('hidden');
+    renderAccount();
     checkSwiggyAuth().catch(e => console.warn('Auth check failed:', e));
   }, 2200);
 });
+
+// ── SOIRÉE LOGIN (phone OTP) ───────────────────────────────────────
+// Every plan / search / chat call needs a logged-in Soirée user. The
+// session token goes on every request as X-Soiree-Session.
+function isLoggedIn() { return !!S.soireeSession; }
+
+function authHeaders(extra = {}) {
+  const h = { 'Content-Type': 'application/json', ...extra };
+  if (S.soireeSession) h['X-Soiree-Session'] = S.soireeSession;
+  return h;
+}
+
+function renderAccount() {
+  const label = document.getElementById('acctLabel');
+  const dot = document.getElementById('acctDot');
+  const swiggyBtn = document.getElementById('swiggyAuthBtn');
+  if (isLoggedIn()) {
+    const u = S.soireeUser || {};
+    label.textContent = u.name || u.phone || 'Account';
+    dot.style.background = 'var(--green2)';
+    dot.style.boxShadow = '0 0 6px var(--green2)';
+    swiggyBtn.style.display = 'flex';
+  } else {
+    label.textContent = 'Log in';
+    dot.style.background = 'var(--text3)';
+    dot.style.boxShadow = 'none';
+    swiggyBtn.style.display = 'none';
+  }
+}
+
+function handleAccount() {
+  if (isLoggedIn()) {
+    if (confirm('Log out of Soirée?')) logoutSoiree();
+  } else {
+    openLogin();
+  }
+}
+
+function openLogin() {
+  document.getElementById('loginModal').style.display = 'flex';
+  document.getElementById('loginErr').textContent = '';
+  showLoginStep('phone');
+  setTimeout(() => document.getElementById('loginPhone').focus(), 50);
+}
+function closeLogin() {
+  document.getElementById('loginModal').style.display = 'none';
+}
+function showLoginStep(step) {
+  document.getElementById('loginStepPhone').style.display = step === 'phone' ? 'block' : 'none';
+  document.getElementById('loginStepCode').style.display = step === 'code' ? 'block' : 'none';
+}
+
+async function requestOtp() {
+  const phone = document.getElementById('loginPhone').value.trim();
+  const err = document.getElementById('loginErr');
+  const btn = document.getElementById('loginSendBtn');
+  err.textContent = '';
+  if (!phone) { err.textContent = 'Enter your mobile number.'; return; }
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const r = await fetch(`${API_BASE}/api/v1/users/otp/request`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || 'Could not send the code.');
+    S.otpPhone = d.phone || phone;
+    document.getElementById('loginCodeHint').textContent =
+      'Code sent to ' + S.otpPhone;
+    showLoginStep('code');
+    setTimeout(() => document.getElementById('loginCode').focus(), 50);
+  } catch(e) {
+    err.textContent = typeof e.message === 'string' ? e.message : 'Could not send the code.';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Send code';
+  }
+}
+
+async function verifyOtp() {
+  const code = document.getElementById('loginCode').value.trim();
+  const name = document.getElementById('loginName').value.trim();
+  const err = document.getElementById('loginErr');
+  const btn = document.getElementById('loginVerifyBtn');
+  err.textContent = '';
+  if (!code) { err.textContent = 'Enter the 6-digit code.'; return; }
+  btn.disabled = true; btn.textContent = 'Verifying…';
+  try {
+    const r = await fetch(`${API_BASE}/api/v1/users/otp/verify`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: S.otpPhone, code, name: name || null }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || 'That code is wrong or expired.');
+    S.soireeSession = d.soiree_session;
+    S.soireeUser = d.user || null;
+    localStorage.setItem('soiree_session', d.soiree_session);
+    localStorage.setItem('soiree_user', JSON.stringify(d.user || null));
+    closeLogin();
+    renderAccount();
+    checkSwiggyAuth().catch(() => {});
+    if (S.pendingAfterLogin) { const fn = S.pendingAfterLogin; S.pendingAfterLogin = null; fn(); }
+  } catch(e) {
+    err.textContent = typeof e.message === 'string' ? e.message : 'Verification failed.';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Verify & continue';
+  }
+}
+
+async function logoutSoiree() {
+  try {
+    await fetch(`${API_BASE}/api/v1/users/logout`, {
+      method: 'POST', headers: authHeaders(),
+    });
+  } catch(e) {}
+  S.soireeSession = null;
+  S.soireeUser = null;
+  S.swiggyConnected = false;
+  localStorage.removeItem('soiree_session');
+  localStorage.removeItem('soiree_user');
+  localStorage.removeItem('soiree_swiggy');
+  renderAccount();
+  document.getElementById('swiggyAuthDot').style.background = 'var(--text3)';
+  document.getElementById('swiggyAuthDot').style.boxShadow = 'none';
+  document.getElementById('swiggyAuthLabel').textContent = 'Connect Swiggy';
+}
+
+// Run `next` only if logged in; otherwise pop the login modal and resume after.
+function requireLogin(next) {
+  if (isLoggedIn()) { next(); return true; }
+  S.pendingAfterLogin = next;
+  openLogin();
+  return false;
+}
+
+// A 401 from the API means the session token is dead — wipe it and re-prompt.
+function handle401() {
+  S.soireeSession = null;
+  S.soireeUser = null;
+  S.swiggyConnected = false;
+  localStorage.removeItem('soiree_session');
+  localStorage.removeItem('soiree_user');
+  renderAccount();
+  openLogin();
+  document.getElementById('loginErr').textContent = 'Your session expired — please log in again.';
+}
 
 // ── FORM HELPERS ───────────────────────────────────────────────────
 function pick(el, type, val) {
@@ -2415,6 +2604,8 @@ function renderPlan(plan) {
 
 // ── GENERATE ───────────────────────────────────────────────────────
 async function generate() {
+  if (!requireLogin(generate)) return;
+
   S.location = document.getElementById('loc').value.trim();
   S.notes = document.getElementById('notesTA').value.trim();
 
@@ -2455,15 +2646,13 @@ async function generate() {
   S.pickerOffset = 0;
 
   try {
-    const searchHeaders = { 'Content-Type': 'application/json' };
-    if (S.sessionId) searchHeaders['X-Session-ID'] = S.sessionId;
-
     const searchResponse = await fetch(`${API_BASE}/api/v1/search/`, {
       method: 'POST',
-      headers: searchHeaders,
+      headers: authHeaders(),
       body: JSON.stringify(req),
     });
 
+    if (searchResponse.status === 401) { handle401(); return; }
     if (!searchResponse.ok) throw new Error(searchResponse.status);
     const searchData = await searchResponse.json();
     S.addressUsed = searchData.address_used || null;
@@ -2495,6 +2684,8 @@ function backToForm() {
 }
 
 async function runGeneration(req, opts = {}) {
+  if (!requireLogin(() => runGeneration(req, opts))) return;
+
   const btn = document.getElementById('planCta');
   btn.disabled = true;
   btn.innerHTML = '<span class="cta-spinner"></span> ORCHESTRATING...';
@@ -2512,15 +2703,18 @@ async function runGeneration(req, opts = {}) {
   startSteps();
 
   try {
-    const headers = { 'Content-Type': 'application/json' };
-    if (S.sessionId) headers['X-Session-ID'] = S.sessionId;
-
     const response = await fetch(`${API_BASE}/api/v1/plans/generate`, {
       method: 'POST',
-      headers,
+      headers: authHeaders(),
       body: JSON.stringify(req),
     });
 
+    if (response.status === 401) {
+      stopSteps(); finishBar();
+      document.getElementById('genState').style.display = 'none';
+      handle401();
+      return;
+    }
     if (!response.ok) throw new Error(response.status);
 
     const reader = response.body.getReader();
@@ -2657,7 +2851,7 @@ async function sendChat() {
   try {
     const r = await fetch(`${API_BASE}/api/v1/plans/refine`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
       body: JSON.stringify({
         user_message: msg,
         event_data: S.lastReq || {},
@@ -2665,6 +2859,7 @@ async function sendChat() {
         plan_text: S.planText || '',
       }),
     });
+    if (r.status === 401) { handle401(); throw new Error('Please log in again.'); }
     if (!r.ok) throw new Error(r.status);
     const d = await r.json();
 
@@ -2879,10 +3074,8 @@ function showPicker(data, opts = {}) {
 }
 
 async function fetchPickerOptions() {
-  const headers = { 'Content-Type': 'application/json' };
-  if (S.sessionId) headers['X-Session-ID'] = S.sessionId;
   const r = await fetch(`${API_BASE}/api/v1/search/`, {
-    method: 'POST', headers,
+    method: 'POST', headers: authHeaders(),
     body: JSON.stringify({
       ...S.lastReq,
       refine: S.pickerRefine || null,
@@ -2934,12 +3127,12 @@ function selectDineout(i) {
 // offers) — the Dineout list only has name + rating + locality.
 async function loadDineoutDetail() {
   const r = S.selectedDineout;
-  if (!r?.id || !S.sessionId || r._detail) return;
+  if (!r?.id || !S.swiggyConnected || r._detail) return;
   const c = S.searchData.dineout_coordinates || {};
   const q = c.lat != null ? `?lat=${c.lat}&lng=${c.lng}` : '';
   try {
     const res = await fetch(`${API_BASE}/api/v1/search/restaurant/${encodeURIComponent(r.id)}${q}`,
-      { headers: { 'X-Session-ID': S.sessionId } });
+      { headers: authHeaders() });
     const d = await res.json();
     r._detail = true;
     if (d && Object.keys(d).length) {
@@ -2973,53 +3166,48 @@ async function generateFromSelection() {
   await runGeneration(req);
 }
 
+// Swiggy connection is keyed to the logged-in Soirée user server-side —
+// every call here just carries X-Soiree-Session.
+function paintSwiggy(connected) {
+  S.swiggyConnected = connected;
+  const dot = document.getElementById('swiggyAuthDot');
+  const label = document.getElementById('swiggyAuthLabel');
+  dot.style.background = connected ? 'var(--green2)' : 'var(--text3)';
+  dot.style.boxShadow = connected ? '0 0 6px var(--green2)' : 'none';
+  label.textContent = connected ? 'Swiggy Connected' : 'Connect Swiggy';
+}
+
 async function checkSwiggyAuth() {
-  const sessionId = localStorage.getItem('soiree_session_id');
-  if (!sessionId) return;
+  if (!isLoggedIn()) { paintSwiggy(false); return; }
   try {
-    const authRes = await fetch(
-      `${API_BASE}/api/v1/auth/status?session_id=${sessionId}`
-    );
-    const data = await authRes.json();
-    if (data.authenticated) {
-      S.sessionId = sessionId;
-      S.swiggyConnected = true;
-      document.getElementById('swiggyAuthDot').style.background = 'var(--green2)';
-      document.getElementById('swiggyAuthDot').style.boxShadow = '0 0 6px var(--green2)';
-      document.getElementById('swiggyAuthLabel').textContent = 'Swiggy Connected';
-    } else {
-      localStorage.removeItem('soiree_session_id');
-      S.sessionId = null;
-      S.swiggyConnected = false;
-    }
+    const res = await fetch(`${API_BASE}/api/v1/auth/status`, { headers: authHeaders() });
+    if (res.status === 401) { handle401(); return; }
+    const data = await res.json();
+    paintSwiggy(!!data.connected);
   } catch(e) {}
 }
 
 async function handleSwiggyAuth() {
+  if (!requireLogin(handleSwiggyAuth)) return;
+
   if (S.swiggyConnected) {
     if (!confirm('Disconnect your Swiggy account?')) return;
     try {
-      await fetch(
-        `${API_BASE}/api/v1/auth/logout?session_id=${S.sessionId}`,
-        { method: 'POST' }
-      );
+      await fetch(`${API_BASE}/api/v1/auth/logout`, {
+        method: 'POST', headers: authHeaders(),
+      });
     } catch(e) {}
-    localStorage.removeItem('soiree_session_id');
-    localStorage.removeItem('soiree_expires_at');
-    S.sessionId = null;
-    S.swiggyConnected = false;
-    document.getElementById('swiggyAuthDot').style.background = 'var(--text3)';
-    document.getElementById('swiggyAuthDot').style.boxShadow = 'none';
-    document.getElementById('swiggyAuthLabel').textContent = 'Connect Swiggy';
+    paintSwiggy(false);
     return;
   }
   try {
-    const authStartRes = await fetch(`${API_BASE}/api/v1/auth/start`);
-    const authStartData = await authStartRes.json();
+    const res = await fetch(`${API_BASE}/api/v1/auth/start`, { headers: authHeaders() });
+    if (res.status === 401) { handle401(); return; }
+    const data = await res.json();
     // Remember where to come back to — the OAuth callback lands on a
     // Next.js route and would otherwise drop the user on the app root.
     localStorage.setItem('soiree_return', location.pathname + location.search);
-    window.location.href = authStartData.authorize_url;
+    window.location.href = data.authorize_url;
   } catch(e) {
     alert('Could not start Swiggy login. Please try again.');
   }

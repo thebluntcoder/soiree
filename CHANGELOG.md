@@ -7,7 +7,40 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Auth — phone-OTP login, `demo-user-001` removed (breaking, TODO §3)
+
+- **Every plan / event / search / chat / order endpoint now requires a
+  logged-in Soirée user.** The hardcoded `demo-user-001` and its
+  `_ensure_demo_user` bootstrap are gone. Requests without a valid
+  `X-Soiree-Session` get `401 {"code": "NOT_LOGGED_IN"}`.
+- **Login is phone-OTP** (`services/auth/otp.py`):
+  `POST /users/otp/request {phone}` → `POST /users/otp/verify {phone, code, name?}`
+  → `{ soiree_session, user, is_new }`. 6-digit code, 5-min TTL, 5 attempts,
+  5-requests-per-10-min per number. Sender is pluggable — **MSG91** when
+  `MSG91_AUTH_KEY` + `MSG91_TEMPLATE_ID` are set, otherwise the code is
+  logged and (outside production) the magic code `000000` verifies.
+- **Sessions** are opaque tokens in Redis (`soiree_session:{token}`, 30-day
+  TTL), sent as `X-Soiree-Session`. `GET /users/me`, `POST /users/logout`.
+- **Swiggy OAuth is now keyed to the Soirée user** — the token lives at
+  `swiggy_token:{user_id}`, so one login owns one Swiggy connection and the
+  frontend no longer juggles a separate Swiggy session id. `/auth/start`,
+  `/auth/callback`, `/auth/status`, `/auth/logout` all require login;
+  `/auth/callback` refuses a `state` that a different session started.
+- **Ownership checks** — `GET /plans/{id}`, `/plans/event/{id}`,
+  `/events/{id}` (+ PATCH/DELETE), `/orders/{id}` 404 on another user's row.
+- `users.last_login_at` column + idempotent Alembic migration
+  `a1b2c3d4e5f6` (safe whether or not the column already exists).
+- **`demo.html`** — login modal (phone → code → optional name), an account
+  chip in the header, `X-Soiree-Session` on every call, a 401 anywhere
+  re-opens the modal. `scripts/seed.py` no longer seeds a demo user; it
+  mints a dev session for phone `9999999999` (log in with OTP `000000`).
+- The stale Next.js app (`frontend/src/`) now 401s on every API call — it
+  was already flagged stale for OAuth / two-step / refine. Still not wired.
+
 ### Security (TODO §3)
+
+- **Rate limiter now keys on the Soirée session first** (`X-Soiree-Session`),
+  then the legacy Swiggy session, then client IP.
 - **Swiggy access tokens are encrypted at rest.** They sat in Redis as
   plaintext JSON for 5 days — anyone with the Redis URL had every
   connected user's food-delivery account. Now Fernet-encrypted with a key

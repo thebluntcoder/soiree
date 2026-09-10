@@ -90,10 +90,10 @@ class TestRateLimit:
         dep = ratelimit.rate_limit("t", limit=2, window_seconds=3600)
         req = _fake_request("1.2.3.4")
 
-        await dep(req, x_session_id=None)  # 1
-        await dep(req, x_session_id=None)  # 2
+        await dep(req, x_session_id=None, x_soiree_session=None)  # 1
+        await dep(req, x_session_id=None, x_soiree_session=None)  # 2
         with pytest.raises(Exception) as ei:  # 3 → 429
-            await dep(req, x_session_id=None)
+            await dep(req, x_session_id=None, x_soiree_session=None)
         assert getattr(ei.value, "status_code", None) == 429
 
     @pytest.mark.asyncio
@@ -106,8 +106,8 @@ class TestRateLimit:
         monkeypatch.setattr(ratelimit, "get_redis", boom)
         dep = ratelimit.rate_limit("t", limit=1, window_seconds=60)
         # should not raise even past the limit
-        await dep(_fake_request("9.9.9.9"), x_session_id=None)
-        await dep(_fake_request("9.9.9.9"), x_session_id=None)
+        await dep(_fake_request("9.9.9.9"), x_session_id=None, x_soiree_session=None)
+        await dep(_fake_request("9.9.9.9"), x_session_id=None, x_soiree_session=None)
 
     @pytest.mark.asyncio
     async def test_session_id_and_ip_are_separate_buckets(self, monkeypatch):
@@ -126,9 +126,38 @@ class TestRateLimit:
         monkeypatch.setattr(ratelimit, "get_redis", lambda: _async(FakeRedis()))
         dep = ratelimit.rate_limit("t", limit=1, window_seconds=3600)
 
-        await dep(_fake_request("1.1.1.1"), x_session_id="sess-a")
-        await dep(_fake_request("1.1.1.1"), x_session_id="sess-b")  # different bucket, ok
+        await dep(_fake_request("1.1.1.1"), x_session_id="sess-a", x_soiree_session=None)
+        await dep(  # different bucket, ok
+            _fake_request("1.1.1.1"), x_session_id="sess-b", x_soiree_session=None
+        )
         assert len(store) == 2
+
+    @pytest.mark.asyncio
+    async def test_soiree_session_takes_precedence(self, monkeypatch):
+        from app.core import ratelimit
+
+        store: dict[str, int] = {}
+
+        class FakeRedis:
+            async def incr(self, k):
+                store[k] = store.get(k, 0) + 1
+                return store[k]
+
+            async def expire(self, k, s):
+                return True
+
+        monkeypatch.setattr(ratelimit, "get_redis", lambda: _async(FakeRedis()))
+        dep = ratelimit.rate_limit("t", limit=1, window_seconds=3600)
+
+        # Same Soirée session from two IPs → one bucket → second call 429s.
+        await dep(
+            _fake_request("1.1.1.1"), x_session_id=None, x_soiree_session="soiree-x"
+        )
+        with pytest.raises(Exception) as ei:
+            await dep(
+                _fake_request("2.2.2.2"), x_session_id=None, x_soiree_session="soiree-x"
+            )
+        assert getattr(ei.value, "status_code", None) == 429
 
 
 async def _async(v):
