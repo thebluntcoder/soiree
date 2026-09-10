@@ -31,7 +31,10 @@ ENDPOINTS:
   POST /plans/{plan_id}/order  → place orders (Phase 2)
 """
 
+import asyncio
+import contextlib
 import json as _json
+from typing import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -61,6 +64,49 @@ _GENERATE_LIMIT = Depends(rate_limit("plan_generate", limit=25, window_seconds=3
 _REFINE_LIMIT = Depends(rate_limit("plan_refine", limit=40, window_seconds=3600))
 
 router = APIRouter()
+
+# generate_plan() is silent for a long stretch — parallel MCP calls, then a
+# non-streaming Claude call — often 30-60s with zero bytes on the wire.
+# Railway's edge resets an idle HTTP/2 stream in that window
+# (net::ERR_HTTP2_PROTOCOL_ERROR on the client). Emit an SSE comment every
+# few seconds so the connection is never idle; the frontend parser ignores
+# any line that isn't `data: `.
+_HEARTBEAT_SECONDS = 5.0
+
+
+async def _with_heartbeat(
+    agen: AsyncIterator[str], interval: float = _HEARTBEAT_SECONDS
+) -> AsyncIterator[str]:
+    """Forward every chunk from `agen`, injecting `: ping` on each idle gap."""
+    queue: asyncio.Queue = asyncio.Queue()
+    done = object()
+
+    async def _pump() -> None:
+        try:
+            async for item in agen:
+                await queue.put(item)
+        except Exception as exc:  # noqa: BLE001 — re-raised on the consumer side
+            await queue.put(exc)
+        finally:
+            await queue.put(done)
+
+    pump = asyncio.create_task(_pump())
+    try:
+        while True:
+            try:
+                item = await asyncio.wait_for(queue.get(), timeout=interval)
+            except asyncio.TimeoutError:
+                yield ": ping\n\n"
+                continue
+            if item is done:
+                break
+            if isinstance(item, BaseException):
+                raise item
+            yield item
+    finally:
+        pump.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await pump
 
 
 @router.post(
@@ -118,9 +164,10 @@ async def create_plan_endpoint(
         try:
             event_data = request.model_dump()
             event_data["access_token"] = access_token  # None = mock, token = live
-            async for chunk in generate_plan(event_data):
-                accumulated += chunk
+            async for chunk in _with_heartbeat(generate_plan(event_data)):
                 yield chunk
+                if not chunk.startswith(":"):  # skip heartbeat comments
+                    accumulated += chunk
 
             parsed = parse_plan_text(accumulated)
             await update_plan_text(
