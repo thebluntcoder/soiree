@@ -38,7 +38,7 @@ import secrets
 import time
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -95,12 +95,27 @@ async def get_or_register_client_id() -> str:
 
 @router.get("/start", summary="Begin sign-in — returns the Swiggy authorize URL",
             dependencies=[_START_LIMIT])
-async def auth_start():
+async def auth_start(
+    consent: bool = Query(
+        False, description="Must be true — the user accepted the privacy policy"
+    ),
+):
     """
     Generate a PKCE challenge and return the Swiggy authorize URL. The
     frontend redirects the user there to log in on Swiggy's own page.
     Public — there is no Soirée user yet.
+
+    `consent=true` is required: signing in creates an account and links a
+    Swiggy connection, so the frontend must not offer this button before
+    the user has checked "I agree to the privacy policy". The timestamp
+    travels with the PKCE record and lands on the user row at /auth/callback.
     """
+    if not consent:
+        raise HTTPException(
+            status_code=400,
+            detail="Accept the privacy policy before signing in (consent=true).",
+        )
+
     redis = await get_redis()
 
     code_verifier, code_challenge = generate_pkce()
@@ -109,7 +124,13 @@ async def auth_start():
     await redis.setex(
         pkce_redis_key(state),
         PKCE_TTL,
-        json.dumps({"code_verifier": code_verifier, "state": state}),
+        json.dumps(
+            {
+                "code_verifier": code_verifier,
+                "state": state,
+                "consent_at": datetime.utcnow().isoformat(),
+            }
+        ),
     )
 
     client_id = await get_or_register_client_id()
@@ -146,7 +167,9 @@ async def auth_callback(
         )
     # Authorization code is single-use — burn the PKCE record now.
     await redis.delete(pkce_redis_key(request.state))
-    code_verifier = json.loads(pkce_data_raw)["code_verifier"]
+    pkce_data = json.loads(pkce_data_raw)
+    code_verifier = pkce_data["code_verifier"]
+    consent_at_raw = pkce_data.get("consent_at")
 
     try:
         token_response = await exchange_code_for_token(
@@ -176,6 +199,12 @@ async def auth_callback(
     now = datetime.utcnow()
     user.last_login_at = now
     user.updated_at = now
+    try:
+        user.consent_accepted_at = (
+            datetime.fromisoformat(consent_at_raw) if consent_at_raw else now
+        )
+    except ValueError:
+        user.consent_accepted_at = now
     db.add(user)
     await db.commit()
     await db.refresh(user)

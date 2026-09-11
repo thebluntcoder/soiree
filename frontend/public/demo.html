@@ -1629,10 +1629,11 @@ input[type=range]::-webkit-slider-thumb:hover {
     <span class="logo-wordmark">SOIRÉE</span>
   </div>
   <div class="header-right">
-    <div id="acctBtn" onclick="handleAccount()" style="display:flex;align-items:center;gap:7px;padding:6px 16px;border:1px solid var(--border2);border-radius:20px;font-size:11px;letter-spacing:1px;color:var(--text2);cursor:pointer;transition:all 0.2s;margin-right:8px;font-family:'DM Sans',sans-serif;">
+    <div id="acctBtn" onclick="handleAccount()" style="display:flex;align-items:center;gap:7px;padding:6px 16px;border:1px solid var(--border2);border-radius:20px;font-size:11px;letter-spacing:1px;color:var(--text2);cursor:pointer;transition:all 0.2s;font-family:'DM Sans',sans-serif;">
         <span id="acctDot" style="width:6px;height:6px;border-radius:50%;background:var(--text3);transition:all 0.3s"></span>
         <span id="acctLabel">Sign in</span>
     </div>
+    <div id="deleteDataLink" onclick="handleDeleteMyData()" style="display:none;font-size:10px;color:var(--text3);cursor:pointer;margin:0 12px 0 4px;text-decoration:underline;text-underline-offset:2px;">Delete my data</div>
     <div id="swiggyAuthBtn" onclick="handleSwiggyAuth()" style="display:none;align-items:center;gap:7px;padding:6px 16px;border:1px solid var(--border2);border-radius:20px;font-size:11px;letter-spacing:1px;color:var(--text2);cursor:pointer;transition:all 0.2s;margin-right:8px;font-family:'DM Sans',sans-serif;">
         <span id="swiggyAuthDot" style="width:6px;height:6px;border-radius:50%;background:var(--amber);transition:all 0.3s"></span>
         <span id="swiggyAuthLabel">Reconnect Swiggy</span>
@@ -1908,11 +1909,16 @@ input[type=range]::-webkit-slider-thumb:hover {
       Soirée plans your evening from your Swiggy account — restaurants near your
       saved addresses, live offers, and (soon) one-tap ordering.
     </div>
-    <div style="font-size:12px;color:var(--text3);line-height:1.7;margin-bottom:20px;">
+    <div style="font-size:12px;color:var(--text3);line-height:1.7;margin-bottom:18px;">
       Sign in on Swiggy's own page. Soirée never sees your Swiggy password.
     </div>
-    <button id="loginGoBtn" onclick="startSwiggyLogin()"
-      style="width:100%;padding:13px;background:linear-gradient(135deg,var(--gold2),var(--gold3));border:none;border-radius:10px;color:#1a1006;font-size:13px;font-weight:600;letter-spacing:1px;cursor:pointer;">
+    <label style="display:flex;align-items:flex-start;gap:9px;font-size:12px;color:var(--text2);line-height:1.6;cursor:pointer;margin-bottom:16px;">
+      <input id="loginConsent" type="checkbox" onchange="updateLoginBtn()"
+        style="margin-top:2px;accent-color:var(--gold);cursor:pointer;flex-shrink:0;">
+      <span>I agree to the <a href="/privacy.html" target="_blank" style="color:var(--gold);">Privacy Policy</a> — Soirée reads my Swiggy account to plan events.</span>
+    </label>
+    <button id="loginGoBtn" onclick="startSwiggyLogin()" disabled
+      style="width:100%;padding:13px;background:linear-gradient(135deg,var(--gold2),var(--gold3));border:none;border-radius:10px;color:#1a1006;font-size:13px;font-weight:600;letter-spacing:1px;cursor:pointer;opacity:0.4;transition:opacity 0.2s;">
       Sign in with Swiggy
     </button>
     <div id="loginErr" style="margin-top:12px;font-size:12px;color:var(--coral2);line-height:1.5;"></div>
@@ -1974,6 +1980,7 @@ function renderAccount() {
   const label = document.getElementById('acctLabel');
   const dot = document.getElementById('acctDot');
   const reconnect = document.getElementById('swiggyAuthBtn');
+  const deleteLink = document.getElementById('deleteDataLink');
   if (isLoggedIn()) {
     const u = S.soireeUser || {};
     label.textContent = u.name || (u.phone ? u.phone : 'Signed in');
@@ -1982,11 +1989,13 @@ function renderAccount() {
     // "Reconnect Swiggy" only shows once /auth/status has confirmed the
     // token actually lapsed — avoids a flash on load.
     reconnect.style.display = (S.swiggyChecked && !S.swiggyConnected) ? 'flex' : 'none';
+    deleteLink.style.display = 'block';
   } else {
     label.textContent = 'Sign in';
     dot.style.background = 'var(--text3)';
     dot.style.boxShadow = 'none';
     reconnect.style.display = 'none';
+    deleteLink.style.display = 'none';
   }
 }
 
@@ -2000,19 +2009,35 @@ function handleAccount() {
 
 function openLogin(reason) {
   document.getElementById('loginErr').textContent = reason || '';
+  const consent = document.getElementById('loginConsent');
+  if (consent) consent.checked = false;
+  updateLoginBtn();
   document.getElementById('loginModal').style.display = 'flex';
 }
 function closeLogin() {
   document.getElementById('loginModal').style.display = 'none';
+}
+// Consent checkbox gates the sign-in button — required before /auth/start
+// will even accept the request server-side.
+function updateLoginBtn() {
+  const checked = document.getElementById('loginConsent')?.checked;
+  const btn = document.getElementById('loginGoBtn');
+  if (!btn) return;
+  btn.disabled = !checked;
+  btn.style.opacity = checked ? '1' : '0.4';
 }
 
 // Kick off Swiggy OAuth. Comes back to this page via /auth/callback.
 async function startSwiggyLogin() {
   const btn = document.getElementById('loginGoBtn');
   const err = document.getElementById('loginErr');
+  if (!document.getElementById('loginConsent')?.checked) {
+    if (err) err.textContent = 'Please accept the privacy policy first.';
+    return;
+  }
   if (btn) { btn.disabled = true; btn.textContent = 'Opening Swiggy…'; }
   try {
-    const res = await fetch(`${API_BASE}/api/v1/auth/start`);
+    const res = await fetch(`${API_BASE}/api/v1/auth/start?consent=true`);
     const body = await res.text();
     if (!res.ok) throw new Error(`HTTP ${res.status} ${body.slice(0, 200)}`);
     const data = JSON.parse(body);
@@ -2037,6 +2062,36 @@ async function signOut() {
   localStorage.removeItem('soiree_user');
   localStorage.removeItem('soiree_swiggy_expires_at');
   renderAccount();
+}
+
+// Irreversible: purges every plan, every event, the Swiggy token, this
+// session and the account row itself. See docs/api.md — DELETE /users/me.
+async function handleDeleteMyData() {
+  if (!isLoggedIn()) return;
+  const name = (S.soireeUser && S.soireeUser.name) || 'your account';
+  if (!confirm(
+    `Delete ${name} and everything Soirée has for you — every plan, every ` +
+    `event, your Swiggy connection? This can't be undone.`
+  )) return;
+  if (!confirm('Really delete? There is no undo.')) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/users/me`, {
+      method: 'DELETE', headers: authHeaders(),
+    });
+    if (res.status === 401) { handle401(); return; }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  } catch(e) {
+    alert(`Couldn't delete your data: ${e.message || e}. Try again.`);
+    return;
+  }
+  S.soireeSession = null;
+  S.soireeUser = null;
+  S.swiggyConnected = false;
+  localStorage.clear();
+  renderAccount();
+  resetPlan();
+  alert('Done — your data has been deleted.');
 }
 
 // Gate an action behind sign-in. true → caller proceeds. false → the
@@ -3121,8 +3176,14 @@ async function checkSwiggyAuth() {
   } catch(e) {}
 }
 
-// The "Reconnect Swiggy" chip — same OAuth flow as first sign-in.
-function handleSwiggyAuth() { startSwiggyLogin(); }
+// The "Reconnect Swiggy" chip — same OAuth flow as first sign-in, but the
+// user already accepted the privacy policy once, so pre-check that box
+// instead of making them re-tick it every time a 5-day token lapses.
+function handleSwiggyAuth() {
+  openLogin('Your Swiggy connection lapsed — sign in again to keep planning.');
+  const consent = document.getElementById('loginConsent');
+  if (consent) { consent.checked = true; updateLoginBtn(); }
+}
 </script>
 </body>
 </html>

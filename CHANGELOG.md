@@ -7,6 +7,25 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Legal / privacy (TODO §3)
+
+- **Privacy policy** — `frontend/public/privacy.html`, plainly marked as a
+  draft written by the dev team (not a lawyer) that needs review before
+  Soirée has real users. Explains the Swiggy-OAuth sign-in, what's
+  collected and why, where it's stored, the two third parties (Swiggy,
+  Anthropic), retention and how to delete it.
+- **Consent screen** — the sign-in modal requires a checked "I agree to
+  the Privacy Policy" box before the "Sign in with Swiggy" button enables;
+  `GET /auth/start` also rejects server-side without `consent=true`, so
+  the frontend check isn't the only guard. The timestamp travels through
+  the PKCE record and lands on `users.consent_accepted_at` at
+  `/auth/callback` (Alembic `c3d4e5f6a7b8`). Reconnecting a lapsed Swiggy
+  token pre-checks the box instead of asking a returning user to re-agree.
+- **`DELETE /users/me`** — irreversibly purges every plan and event owned
+  by the user, the Swiggy token, the current session, and the user row
+  itself; returns counts of what was deleted. `demo.html` gets a small
+  "Delete my data" link (double-confirmed) next to the account chip.
+
 ### Auth — Swiggy OAuth is the login, `demo-user-001` removed (breaking, TODO §3)
 
 - **Every plan / event / search / chat / order endpoint now requires a

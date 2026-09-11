@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Soirée — Privacy Policy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0b0907; --surface: #131009; --surface2: #1a1510;
+  --border: rgba(255,215,140,0.07); --border2: rgba(255,215,140,0.14);
+  --gold: #c9a96e; --gold2: #e8c98a; --gold-dim: rgba(201,169,110,0.25);
+  --text: #f2eadb; --text2: rgba(242,234,219,0.62); --text3: rgba(242,234,219,0.38);
+  --amber: #dba455; --amber-dim: rgba(219,164,85,0.12); --amber-border: rgba(219,164,85,0.35);
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f8f4ee; --surface: #ffffff; --surface2: #f0ebe0;
+    --border: rgba(90,65,20,0.14); --border2: rgba(90,65,20,0.25);
+    --gold: #6b4a10; --gold2: #7d5812; --gold-dim: rgba(107,74,16,0.20);
+    --text: #1a1006; --text2: rgba(26,16,6,0.75); --text3: rgba(26,16,6,0.52);
+    --amber: #8a5a10; --amber-dim: rgba(138,90,16,0.10); --amber-border: rgba(138,90,16,0.35);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: 'DM Sans', sans-serif; line-height: 1.7;
+}
+.wrap { max-width: 720px; margin: 0 auto; padding: 48px 24px 80px; }
+.top {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 32px;
+}
+.logo {
+  font-family: 'Cormorant Garamond', serif; font-size: 22px; letter-spacing: 3px;
+  color: var(--gold); text-decoration: none;
+}
+.back {
+  color: var(--text3); font-size: 13px; text-decoration: none;
+}
+.back:hover { color: var(--gold); }
+.draft-banner {
+  background: var(--amber-dim); border: 1px solid var(--amber-border);
+  border-radius: 10px; padding: 14px 18px; font-size: 13px; color: var(--amber);
+  margin-bottom: 36px; line-height: 1.6;
+}
+h1 {
+  font-family: 'Cormorant Garamond', serif; font-weight: 500;
+  font-size: 38px; margin: 0 0 6px;
+}
+.updated { color: var(--text3); font-size: 13px; margin-bottom: 40px; }
+h2 {
+  font-family: 'Cormorant Garamond', serif; font-weight: 500; font-size: 22px;
+  color: var(--gold2); margin: 40px 0 12px;
+}
+p, li { color: var(--text2); font-size: 15px; }
+ul { padding-left: 22px; }
+li { margin-bottom: 6px; }
+code {
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: 4px; padding: 1px 6px; font-size: 13px; color: var(--gold2);
+}
+table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border2); }
+th { color: var(--text3); font-weight: 500; font-size: 12px; letter-spacing: 0.5px; text-transform: uppercase; }
+td { color: var(--text2); }
+a { color: var(--gold); }
+.contact-box {
+  background: var(--surface); border: 1px solid var(--border2); border-radius: 12px;
+  padding: 20px 22px; margin-top: 20px;
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="top">
+    <a class="logo" href="/demo.html">SOIRÉE</a>
+    <a class="back" href="/demo.html">← Back to Soirée</a>
+  </div>
+
+  <div class="draft-banner">
+    ⚠ <strong>Draft, not legal advice.</strong> This page was written by the
+    team building Soirée to describe what the product actually does with
+    your data, in plain language. It has not been reviewed by a lawyer and
+    should be before Soirée is opened to the public or handles real users'
+    data at any scale.
+  </div>
+
+  <h1>Privacy Policy</h1>
+  <div class="updated">Draft — last updated 11 September 2026</div>
+
+  <p>
+    Soirée is an AI concierge that plans an evening — a date, a dinner with
+    friends, a birthday — using your Swiggy account for restaurants,
+    groceries and offers, and Anthropic's Claude to write the plan. This
+    page explains what we collect, why, and how to get rid of it.
+  </p>
+
+  <h2>How you sign in</h2>
+  <p>
+    There is no Soirée password. Signing in means authorising Soirée
+    against your Swiggy account through Swiggy's own login page (Swiggy
+    handles your phone number and OTP directly — we never see either). What
+    comes back is an access token that lets Soirée call Swiggy's Food,
+    Instamart and Dineout APIs on your behalf, and a stable identifier for
+    your account that we use to recognise you on future visits.
+  </p>
+
+  <h2>What we collect</h2>
+  <table>
+    <tr><th>Data</th><th>Source</th><th>Why</th></tr>
+    <tr><td>Account identifier, and your Swiggy customer id</td><td>Swiggy, at sign-in</td><td>Recognise you across sessions</td></tr>
+    <tr><td>Name, email, home city</td><td>You, if you add them</td><td>Personalise plans</td></tr>
+    <tr><td>Event details — occasion, budget, guest count, dietary needs, notes</td><td>You, per plan</td><td>Generate the plan</td></tr>
+    <tr><td>Restaurant, dish and offer data</td><td>Swiggy MCP, on your behalf</td><td>Build plan options</td></tr>
+    <tr><td>Generated plans and your follow-up chat messages</td><td>Anthropic Claude</td><td>Show and refine your plan</td></tr>
+    <tr><td>Swiggy access token</td><td>Swiggy OAuth</td><td>Make the above calls</td></tr>
+  </table>
+  <p>
+    We do not collect payment details — ordering isn't built yet — and we
+    never see your Swiggy password or OTP.
+  </p>
+
+  <h2>Where it lives</h2>
+  <ul>
+    <li><strong>Postgres</strong> — your account, events and generated plans. Kept until you delete your account.</li>
+    <li><strong>Redis</strong> — your Swiggy access token (encrypted at rest, expires automatically after 5 days) and your Soirée session token (expires after 30 days or on sign-out).</li>
+  </ul>
+
+  <h2>Who else sees it</h2>
+  <ul>
+    <li><strong>Swiggy</strong> — every Food/Instamart/Dineout call Soirée makes is made as you, with your token.</li>
+    <li><strong>Anthropic (Claude)</strong> — your event details and chat messages are sent to Claude's API to generate and refine plans, under <a href="https://www.anthropic.com/legal/privacy" target="_blank" rel="noopener">Anthropic's own privacy terms</a>. Soirée does not send your Swiggy token or account identifier to Claude.</li>
+  </ul>
+  <p>We do not sell your data, and we do not use it for advertising.</p>
+
+  <h2>Your rights</h2>
+  <p>
+    See what we hold: <code>GET /users/me</code> from the app, or ask.
+    Delete everything — your account, every event, every plan, your Swiggy
+    token, your session — in one action from the account menu in the app.
+    It's immediate and there's no undo.
+  </p>
+
+  <h2>Security</h2>
+  <p>
+    The Swiggy token is encrypted at rest; all traffic runs over HTTPS;
+    sign-in and plan-generation endpoints are rate-limited. Like any
+    software, this is not a guarantee against every possible failure —
+    treat it accordingly.
+  </p>
+
+  <h2>Who this is for</h2>
+  <p>
+    Soirée is not directed at children. Some event types (e.g. alcohol
+    preference) assume an adult user; don't use it if you're under the
+    legal drinking age in your state.
+  </p>
+
+  <h2>Changes</h2>
+  <p>
+    This is a young, actively-developed product — this page will change as
+    features (ordering, group planning) are added. Material changes will
+    be reflected here with an updated date.
+  </p>
+
+  <h2>Contact</h2>
+  <div class="contact-box">
+    Questions, or want your data handled a specific way? Reach out via the
+    project's <a href="https://github.com/thebluntcoder/soiree" target="_blank" rel="noopener">GitHub repository</a>.
+  </div>
+
+  <div class="draft-banner" style="margin-top:48px;">
+    ⚠ Reminder: this is a draft written by the dev team, not a lawyer.
+    Don't treat it as a finished legal document.
+  </div>
+
+</div>
+</body>
+</html>

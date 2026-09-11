@@ -113,14 +113,26 @@ customer id). So one Swiggy sign-in covers everything.
 - [ ] Wire the stale Next.js app (`frontend/src/`) to the session, or drop
       it — it 401s on every call (already flagged stale for OAuth).
 
-### Legal / privacy
-- [ ] Privacy policy + explicit consent screen before Swiggy OAuth
-- [ ] Data-retention & deletion policy (India DPDP Act 2023; GDPR if any
-      EU users) — storing an OAuth token for a food-delivery account is
-      sensitive-data processing
-- [ ] `DELETE /users/me` — "disconnect & delete my data" that purges
-      events + plans + the Swiggy token + the session
-      (`purge_swiggy_token` helper already exists)
+### Legal / privacy ✅ draft + mechanics
+
+- [x] Privacy policy — `frontend/public/privacy.html`, marked **draft,
+      not legal advice, needs a lawyer** at top and bottom. Covers what's
+      collected (Swiggy identity, event/plan inputs, Anthropic prompts),
+      where it lives (Postgres, Redis), third parties (Swiggy, Anthropic),
+      retention, rights, security, contact.
+- [x] Consent screen — the sign-in modal requires a checked "I agree to
+      the Privacy Policy" box before the Swiggy button enables;
+      `/auth/start` rejects without `consent=true` server-side too.
+      `users.consent_accepted_at` records it at `/auth/callback` (Alembic
+      `c3d4e5f6a7b8`). Reconnecting a lapsed token pre-checks the box
+      rather than asking again.
+- [x] `DELETE /users/me` — purges plans, events, the Swiggy token
+      (`purge_swiggy_token`), the session, and the user row itself.
+      `demo.html` "Delete my data" link, double-confirmed.
+- [ ] Have an actual lawyer review `privacy.html` before real users.
+- [ ] Data-retention & deletion **policy document** (India DPDP Act 2023;
+      GDPR if any EU users) — the mechanics exist (above); the written
+      policy answering "how long do you keep X" doesn't yet.
 
 ### Observability / cost
 - [ ] Product analytics (PostHog — OSS, self/EU-hostable): funnel

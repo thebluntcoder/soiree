@@ -21,17 +21,19 @@ Swiggy account; the MCP access token (a JWT) identifies the user via its
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| `GET`  | `/auth/start` | public | → `{ authorize_url, state }`. PKCE + state cached 2 min. Redirect the user to `authorize_url`. Rate-limited 30/hr per IP. |
-| `POST` | `/auth/callback` | public | Body `{ code, state }`. Exchanges the code, reads the token's `sub`, get-or-creates the `User`, stores the encrypted token (`swiggy_token:{user_id}`, 5-day), mints a 30-day session. → `{ soiree_session, user, is_new, swiggy_expires_at }`. `400` bad/expired state, `502` if the token isn't a readable JWT. |
+| `GET`  | `/auth/start` | public | Query `consent=true` **required** (the user must have accepted [/privacy.html](../frontend/public/privacy.html) — `400` without it). → `{ authorize_url, state }`. PKCE + state + a consent timestamp cached 2 min. Redirect the user to `authorize_url`. Rate-limited 30/hr per IP. |
+| `POST` | `/auth/callback` | public | Body `{ code, state }`. Exchanges the code, reads the token's `sub`, get-or-creates the `User` (stamping `consent_accepted_at` from `/auth/start`), stores the encrypted token (`swiggy_token:{user_id}`, 5-day), mints a 30-day session. → `{ soiree_session, user, is_new, swiggy_expires_at }`. `400` bad/expired state, `502` if the token isn't a readable JWT. |
 | `GET`  | `/auth/status` | session | → `{ connected: bool, expires_at }` — is the Swiggy token still live? |
 | `POST` | `/auth/logout` | session | Revokes the Swiggy token **and** the session. |
 | `GET`  | `/users/me` | session | The current user. |
 | `POST` | `/users/logout` | session | Drops the session only (Swiggy token left to expire). |
+| `DELETE` | `/users/me` | session | **Irreversible.** Deletes every plan and event owned by the user, the Swiggy token, this session, and the user row itself. → `{ deleted: true, plans_deleted, events_deleted }`. |
 
 The Swiggy token lasts 5 days, no refresh. When it lapses the 30-day session
 still works but MCP calls fail — `/auth/status` returns `connected: false`
 and the client sends the user back through `/auth/start` (one tap if Swiggy
-still has them logged in).
+still has them logged in, re-ticking consent isn't required client-side but
+the endpoint still needs `consent=true` on every call).
 
 ## Search — restaurant discovery (Step 1.5)
 
