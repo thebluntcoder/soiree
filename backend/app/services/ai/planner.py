@@ -133,7 +133,9 @@ def _get_clients() -> tuple[anthropic.AsyncAnthropic, MCPOrchestrator, OffersEng
     return _anthropic_client, _orchestrator, _offers_engine
 
 
-async def generate_plan(event_data: dict[str, Any]) -> AsyncIterator[str]:
+async def generate_plan(
+    event_data: dict[str, Any], usage: dict[str, Any] | None = None
+) -> AsyncIterator[str]:
     """
     Full plan generation pipeline — yields SSE-formatted text chunks.
 
@@ -144,6 +146,11 @@ async def generate_plan(event_data: dict[str, Any]) -> AsyncIterator[str]:
         event_data: dict from PlanRequest.model_dump() containing all
                     event configuration fields including optional lat/lng
                     from device GPS for more accurate Dineout search
+        usage: optional out-param — if given, populated with
+               {"input_tokens", "output_tokens"} from Claude's response
+               once generation succeeds, for cost/analytics logging. Can't
+               be a return value since this is a generator; the caller
+               reads it after the `async for` completes.
 
     Yields:
         SSE-formatted strings: "data: <encoded_plan>\n\n"
@@ -237,6 +244,9 @@ async def generate_plan(event_data: dict[str, Any]) -> AsyncIterator[str]:
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
         )
+        if usage is not None:
+            usage["input_tokens"] = message.usage.input_tokens
+            usage["output_tokens"] = message.usage.output_tokens
         full_text = message.content[0].text
         # Encode newlines as ⏎ — frontend decodes back to \n after SSE reassembly
         safe = full_text.replace("\n", "⏎")
@@ -364,9 +374,15 @@ async def refine_plan(
     conversation_history: list[dict],
     event_data: dict[str, Any],
     plan_text: str = "",
+    usage: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Classify a follow-up message as a plan CHANGE or a QUESTION.
+
+    Args:
+        usage: optional out-param, populated with
+               {"input_tokens", "output_tokens"} from the classify call —
+               same pattern as generate_plan's `usage` arg.
 
     Returns:
         {
@@ -403,6 +419,9 @@ async def refine_plan(
             system=_REFINE_SYSTEM,
             messages=messages,
         )
+        if usage is not None:
+            usage["input_tokens"] = message.usage.input_tokens
+            usage["output_tokens"] = message.usage.output_tokens
         raw = message.content[0].text.strip()
         # tolerate a ```json fence if the model adds one
         if raw.startswith("```"):

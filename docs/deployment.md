@@ -24,6 +24,8 @@ just records the version and moves on.
 | `REDIRECT_URI` | `https://soiree-blue.vercel.app/auth/callback` |
 | `DATABASE_URL` | injected by Railway Postgres (`postgresql://…` is auto-rewritten to `+asyncpg`) |
 | `REDIS_URL` | injected by Railway Redis (`rediss://` → SSL is auto-detected) |
+| `POSTHOG_API_KEY` | *(optional)* PostHog **project token** (`phc_...`). Unset = analytics fully off — no client built, no network call (see `services/analytics.py`). |
+| `POSTHOG_HOST` | *(optional)* PostHog region host, e.g. `https://eu.i.posthog.com`. Defaults to EU cloud; only matters if `POSTHOG_API_KEY` is set. |
 
 > If `ALLOWED_ORIGINS` is set as a Railway variable it overrides the default
 > in `config.py`. It accepts a JSON array or a comma-separated string.

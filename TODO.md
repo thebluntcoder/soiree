@@ -134,13 +134,24 @@ customer id). So one Swiggy sign-in covers everything.
       GDPR if any EU users) — the mechanics exist (above); the written
       policy answering "how long do you keep X" doesn't yet.
 
-### Observability / cost
-- [ ] Product analytics (PostHog — OSS, self/EU-hostable): funnel
-      `swiggy_auth_started → completed / failed`, plus `search`,
-      `plan_generated`, `plan_refined`, `chat_message`, `approve_clicked`
-      with properties (city, event_type, venue_mode, budget, guest_count,
-      had_swiggy_token, latency_ms)
-- [ ] Log Anthropic token usage per request → cost-per-plan dashboard
+### Observability / cost ✅ analytics wired
+
+- [x] Product analytics — PostHog (EU cloud), fully behind `POSTHOG_API_KEY`
+      (unset = `services/analytics.py` is a no-op, no client, no network
+      call). Funnel: `swiggy_auth_started → _completed / _failed` (aliases
+      the anonymous OAuth `state` onto the real `user.id` once known), plus
+      `search`, `plan_generated`, `chat_message`, `plan_refined`. Properties
+      are counters/flags only — never notes/dietary text/free-form input
+      (event_type, venue_mode, city, budget, guest_count, had_swiggy_token,
+      latency_ms, tokens_in/out, patch field *names* not values).
+- [x] Anthropic token usage — `generate_plan()` / `refine_plan()` take an
+      optional `usage` out-param (populated from `message.usage`), read by
+      the endpoint and attached to `plan_generated` / `chat_message` as
+      `tokens_in`/`tokens_out`. Deliberately not converted to a $ figure
+      here — pricing changes; compute cost-per-plan downstream in PostHog
+      from the raw token counts against current rates.
+- [ ] `approve_clicked` — no "approve" action exists in the product yet
+      (ordering is Phase 2); wire this when that button ships.
 - [ ] Structured logging (JSON) instead of `logger.info` free-text
 
 ## 4. Phase 2 — Approve & Order

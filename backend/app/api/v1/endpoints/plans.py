@@ -34,6 +34,7 @@ ENDPOINTS:
 import asyncio
 import contextlib
 import json as _json
+import time
 from typing import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -50,6 +51,7 @@ from app.lib.parse_plan import parse_plan_text
 from app.models.event import Event
 from app.models.user import User
 from app.schemas.plan import PlanRequest
+from app.services import analytics
 from app.services.ai.planner import generate_followup, generate_plan, refine_plan
 from app.services.plan_service import (
     create_plan,
@@ -161,10 +163,12 @@ async def create_plan_endpoint(
         yield f"data: PLAN_ID:{plan_db.id}\n\n"
 
         accumulated = ""
+        started_at = time.perf_counter()
+        usage: dict = {}
         try:
             event_data = request.model_dump()
             event_data["access_token"] = access_token  # None = mock, token = live
-            async for chunk in _with_heartbeat(generate_plan(event_data)):
+            async for chunk in _with_heartbeat(generate_plan(event_data, usage=usage)):
                 yield chunk
                 if not chunk.startswith(":"):  # skip heartbeat comments
                     accumulated += chunk
@@ -175,6 +179,21 @@ async def create_plan_endpoint(
                 plan_id=plan_db.id,
                 raw_text=accumulated,
                 parsed=parsed,
+            )
+            analytics.capture(
+                user.id,
+                "plan_generated",
+                {
+                    "event_type": request.event_type,
+                    "venue_mode": request.venue_mode,
+                    "city": request.location,
+                    "budget": request.budget,
+                    "guest_count": request.guest_count,
+                    "had_swiggy_token": access_token is not None,
+                    "latency_ms": round((time.perf_counter() - started_at) * 1000),
+                    "tokens_in": usage.get("input_tokens"),
+                    "tokens_out": usage.get("output_tokens"),
+                },
             )
         except Exception as e:  # noqa: BLE001
             yield f"data: [ERROR] {str(e)}\n\n"
@@ -246,12 +265,26 @@ async def refine(request: ChatRequest, user: User = Depends(current_user)):
     On "modify" the frontend merges `patch` into the stored request and
     re-runs POST /plans/generate. `patch` is already sanitised server-side.
     """
-    return await refine_plan(
+    usage: dict = {}
+    result = await refine_plan(
         user_message=request.user_message,
         conversation_history=request.conversation_history,
         event_data=request.event_data,
         plan_text=request.plan_text,
+        usage=usage,
     )
+    analytics.capture(
+        user.id,
+        "chat_message",
+        {
+            "action": result.get("action"),
+            "tokens_in": usage.get("input_tokens"),
+            "tokens_out": usage.get("output_tokens"),
+        },
+    )
+    if result.get("action") == "modify":
+        analytics.capture(user.id, "plan_refined", {"patch_fields": list(result.get("patch") or {})})
+    return result
 
 
 @router.get("/event/{event_id}", summary="All plans for one of your events")

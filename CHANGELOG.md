@@ -7,6 +7,35 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Analytics + Anthropic cost tracking (TODO §3)
+
+- **`services/analytics.py`** — thin PostHog wrapper, entirely behind
+  `POSTHOG_API_KEY`. Unset (the default) means no client is ever
+  constructed and no network call is ever made; every public function
+  also swallows its own errors so a PostHog outage can never affect a
+  real request. `analytics.shutdown()` flushes queued events on app
+  shutdown (wired into `main.py`'s lifespan).
+- **Funnel events** — `swiggy_auth_started` (`/auth/start`, keyed to the
+  OAuth `state` since there's no user yet) → `swiggy_auth_completed` /
+  `swiggy_auth_failed` (`/auth/callback`, with `analytics.alias()` merging
+  the anonymous `state` onto the real `user.id`), plus `search`
+  (`/search/`), `plan_generated` (`/plans/generate`), `chat_message` and
+  `plan_refined` (`/plans/refine`). Properties are counters and flags —
+  `event_type`, `venue_mode`, `city`, `budget`, `guest_count`,
+  `had_swiggy_token`, `latency_ms` — never the notes/dietary text/chat
+  content the user typed. A refine's changed field *names* are sent
+  (e.g. `["budget", "notes"]`), never the new values.
+- **Anthropic token usage** — `generate_plan()` and `refine_plan()`
+  (`services/ai/planner.py`) take an optional `usage` out-param (a
+  generator can't return a value, so the caller passes a dict in and
+  reads it after `async for` completes) populated from
+  `message.usage.{input,output}_tokens`. Attached to `plan_generated` /
+  `chat_message` as `tokens_in`/`tokens_out` — left as raw counts rather
+  than converted to a $ figure, since per-token pricing changes over time
+  and is better computed downstream against current rates.
+- `requirements.txt` — `posthog==7.51.2` + its new transitive deps
+  (`backoff`, `requests`, `charset-normalizer`, `urllib3`).
+
 ### Legal / privacy (TODO §3)
 
 - **Privacy policy** — `frontend/public/privacy.html`, plainly marked as a

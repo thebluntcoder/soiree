@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     RESTAURANT_CACHE_TTL: int = 3600  # 1 hr
     MENU_CACHE_TTL: int = 1800  # 30 min
 
+    # Analytics — PostHog. Unset POSTHOG_API_KEY = analytics fully off
+    # (see services/analytics.py — every call becomes a no-op).
+    POSTHOG_API_KEY: str = ""
+    POSTHOG_HOST: str = "https://eu.i.posthog.com"
+
     # class Config:
     #     env_file = ".env"
     #     case_sensitive = True
