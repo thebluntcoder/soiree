@@ -135,6 +135,33 @@ class TestCurrentUser:
         assert ei.value.status_code == 401
 
 
+# ── /auth/start consent gate ────────────────────────────────────────────────
+
+class TestAuthStartConsent:
+    @pytest.mark.asyncio
+    async def test_no_consent_is_400(self, fake_redis, monkeypatch):
+        from fastapi import HTTPException
+
+        from app.api.v1.endpoints import auth as auth_ep
+
+        monkeypatch.setattr(auth_ep, "get_redis", _lambda_async(fake_redis))
+        with pytest.raises(HTTPException) as ei:
+            await auth_ep.auth_start(consent=False)
+        assert ei.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_consent_true_stores_timestamp(self, fake_redis, monkeypatch):
+        from app.api.v1.endpoints import auth as auth_ep
+
+        fake_redis.store[auth_ep.CLIENT_ID_KEY] = "cached-client"
+        monkeypatch.setattr(auth_ep, "get_redis", _lambda_async(fake_redis))
+
+        out = await auth_ep.auth_start(consent=True)
+        assert "authorize_url" in out
+        pkce = json.loads(fake_redis.store[auth_ep.pkce_redis_key(out["state"])])
+        assert pkce["consent_at"]  # an ISO timestamp was recorded
+
+
 # ── /auth/callback flow ─────────────────────────────────────────────────────
 
 class TestAuthCallback:
@@ -143,7 +170,7 @@ class TestAuthCallback:
         from app.api.v1.endpoints import auth as auth_ep
 
         fake_redis.store[auth_ep.pkce_redis_key("st8")] = json.dumps(
-            {"code_verifier": "v", "state": "st8"}
+            {"code_verifier": "v", "state": "st8", "consent_at": "2026-09-11T10:00:00"}
         )
         tok = _fake_jwt({"sub": "swg-77", "user_id": 22876329})
 
@@ -163,6 +190,7 @@ class TestAuthCallback:
         assert resp.is_new is True
         assert resp.user.swiggy_user_id == "22876329"
         assert db.added.swiggy_sub == "swg-77"
+        assert db.added.consent_accepted_at.isoformat() == "2026-09-11T10:00:00"
         # token cached under the new user's id, encrypted
         key = auth_ep.token_redis_key(db.added.id)
         assert key in fake_redis.store and "swg-77" not in fake_redis.store[key]
@@ -201,6 +229,73 @@ class TestAuthCallback:
                 auth_ep.CallbackRequest(code="c", state="st9"), db=_CaptureDB(None)
             )
         assert ei.value.status_code == 502
+
+
+# ── DELETE /users/me ─────────────────────────────────────────────────────────
+
+class TestDeleteMe:
+    @pytest.mark.asyncio
+    async def test_purges_plans_events_token_and_session(self, monkeypatch):
+        from app.api.v1.endpoints import auth as auth_ep
+        from app.api.v1.endpoints import users as users_ep
+
+        user = _User(id="u1", is_active=True)
+        plans = [object(), object()]
+        events = [object()]
+        db = _SeqDB([plans, events])
+
+        purged = []
+        monkeypatch.setattr(
+            auth_ep, "purge_swiggy_token", _record_async(purged, "purge")
+        )
+        revoked = []
+        monkeypatch.setattr(
+            users_ep, "revoke_session", _record_async(revoked, "revoke")
+        )
+
+        resp = await users_ep.delete_me(user=user, session=db, x_soiree_session="tok")
+
+        assert resp == {"deleted": True, "plans_deleted": 2, "events_deleted": 1}
+        assert db.deleted == [*plans, *events, user]
+        assert db.committed is True
+        assert purged == [("purge", "u1")]
+        assert revoked == [("revoke", "tok")]
+
+
+def _record_async(sink, label):
+    async def _f(arg):
+        sink.append((label, arg))
+
+    return _f
+
+
+class _SeqDB:
+    """Returns queued result lists in call order; tracks delete()/commit()."""
+
+    def __init__(self, results):
+        self._results = list(results)
+        self.deleted: list = []
+        self.committed = False
+
+    async def execute(self, *_a, **_kw):
+        return _ListResult(self._results.pop(0))
+
+    async def delete(self, obj):
+        self.deleted.append(obj)
+
+    async def commit(self):
+        self.committed = True
+
+
+class _ListResult:
+    def __init__(self, items):
+        self._items = items
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return self._items
 
 
 def _lambda_async(value):

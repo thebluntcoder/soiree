@@ -27,6 +27,7 @@ class UserRead(BaseModel):
     preferred_cuisines: list[str] = []
     dietary_tags: list[str] = []
     default_city: Optional[str] = None
+    consent_accepted_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
     is_active: bool

@@ -96,6 +96,10 @@ class User(SQLModel, table=True):
     last_login_at: Optional[datetime] = Field(
         default=None, description="Set on each successful Swiggy login"
     )
+    consent_accepted_at: Optional[datetime] = Field(
+        default=None,
+        description="Last time this user accepted the privacy policy, set at sign-in",
+    )
     is_active: bool = Field(
         default=True, description="Soft delete flag — False means account deactivated"
     )

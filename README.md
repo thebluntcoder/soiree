@@ -45,6 +45,7 @@ No one has built the **full-evening arc** before: start at a restaurant (Dineout
 | Location → matched to a saved Swiggy address (city + aliases) | ✅ Working |
 | Follow-up chat — answers **and** applies plan changes (`/plans/refine`) | ✅ Working |
 | Events CRUD API · `/offers` · `/users/me` · `/orders/{id}` | ✅ Working |
+| Privacy policy + consent screen + `DELETE /users/me` (data purge) | ✅ Working — policy is a draft, needs a lawyer |
 | Plan persistence to DB (+ per-service costs) | ✅ Working |
 | Alembic migrations (real DDL, no `create_all`) | ✅ Working |
 | CI — pytest + migration round-trip | ✅ Working |
@@ -750,13 +751,14 @@ Bug appears
 - [x] `offers` / `users` / `orders` endpoints; per-service cost persistence
 - [x] **Login = Swiggy OAuth** — `demo-user-001` and phone-OTP both gone; every endpoint gated
 - [x] Production hardening — `SECRET_KEY` guard, token encryption, rate limits, `/docs` off in prod
-- [x] CI — pytest + migration round-trip, 148 tests
+- [x] **Privacy policy + consent screen + `DELETE /users/me`** (data purge) — policy is a draft, needs a lawyer
+- [x] CI — pytest + migration round-trip, 151 tests
 
 ### Next
 
 See [TODO.md](TODO.md) for the full prioritised list.
 
-- [ ] Privacy policy + consent screen + `DELETE /users/me` (data purge)
+- [ ] Have a lawyer review `privacy.html`; write the retention/deletion policy doc
 - [ ] Product analytics + Anthropic token-cost logging
 - [ ] `create_address` flow for cities the user hasn't saved
 - [ ] Phase 2 — agentic ordering (`book_table` / `place_food_order` / `checkout`, confirmation + undo)
