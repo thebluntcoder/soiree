@@ -6,10 +6,12 @@ anthropic==0.97.0
 anyio==4.13.0
 asyncpg==0.31.0
 attrs==26.1.0
+backoff==2.2.1
 billiard==4.2.4
 celery==5.6.3
 certifi==2026.4.22
 cffi==2.0.0
+charset-normalizer==3.5.1
 click==8.3.3
 click-didyoumean==0.3.1
 click-plugins==1.1.1.2
@@ -35,6 +37,7 @@ MarkupSafe==3.0.3
 mcp==1.27.0
 packaging==26.0
 pluggy==1.6.0
+posthog==7.51.2
 prompt_toolkit==3.0.52
 psycopg2-binary==2.9.12
 pycparser==3.0
@@ -51,6 +54,7 @@ python-multipart==0.0.26
 PyYAML==6.0.3
 redis==7.4.0
 referencing==0.37.0
+requests==2.34.2
 respx==0.23.1
 rpds-py==0.30.0
 setuptools==82.0.1
@@ -64,6 +68,7 @@ typing-inspection==0.4.2
 typing_extensions==4.15.0
 tzdata==2026.1
 tzlocal==5.3.1
+urllib3==2.7.0
 uvicorn==0.46.0
 uvloop==0.22.1
 vine==5.1.0

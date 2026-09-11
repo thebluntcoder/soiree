@@ -46,6 +46,7 @@ from app.core.config import settings
 from app.core.database import init_db
 from app.core.redis import close_redis
 from app.api.v1.router import api_router
+from app.services import analytics
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,7 @@ async def lifespan(app: FastAPI):
     await init_db()  # Create DB tables if they don't exist
     yield
     # SHUTDOWN
+    analytics.shutdown()  # flush queued PostHog events (no-op if disabled)
     await close_redis()  # Close Redis connection pool cleanly
 
 

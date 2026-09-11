@@ -46,6 +46,7 @@ No one has built the **full-evening arc** before: start at a restaurant (Dineout
 | Follow-up chat — answers **and** applies plan changes (`/plans/refine`) | ✅ Working |
 | Events CRUD API · `/offers` · `/users/me` · `/orders/{id}` | ✅ Working |
 | Privacy policy + consent screen + `DELETE /users/me` (data purge) | ✅ Working — policy is a draft, needs a lawyer |
+| Product analytics (PostHog) + Anthropic token-cost tracking | ✅ Working — behind `POSTHOG_API_KEY`, no-op when unset |
 | Plan persistence to DB (+ per-service costs) | ✅ Working |
 | Alembic migrations (real DDL, no `create_all`) | ✅ Working |
 | CI — pytest + migration round-trip | ✅ Working |
@@ -221,6 +222,7 @@ soiree/
 │   │   │   └── parse_plan.py              # Server-side plan parser (mirrors frontend parsePlan.ts)
 │   │   ├── services/
 │   │   │   ├── plan_service.py            # DB operations: create_plan, update_plan_text, get_plan
+│   │   │   ├── analytics.py               # PostHog wrapper — no-op without POSTHOG_API_KEY
 │   │   │   ├── auth/session.py            # Soirée session tokens in Redis
 │   │   │   ├── auth/oauth.py              # PKCE, DCR, token exchange, decode_token_identity
 │   │   │   ├── mcp/
@@ -752,14 +754,15 @@ Bug appears
 - [x] **Login = Swiggy OAuth** — `demo-user-001` and phone-OTP both gone; every endpoint gated
 - [x] Production hardening — `SECRET_KEY` guard, token encryption, rate limits, `/docs` off in prod
 - [x] **Privacy policy + consent screen + `DELETE /users/me`** (data purge) — policy is a draft, needs a lawyer
-- [x] CI — pytest + migration round-trip, 151 tests
+- [x] **Product analytics (PostHog) + Anthropic token-cost tracking** — behind `POSTHOG_API_KEY`, no-op when unset
+- [x] CI — pytest + migration round-trip, 160 tests
 
 ### Next
 
 See [TODO.md](TODO.md) for the full prioritised list.
 
 - [ ] Have a lawyer review `privacy.html`; write the retention/deletion policy doc
-- [ ] Product analytics + Anthropic token-cost logging
+- [ ] `approve_clicked` analytics event once an approve action exists (Phase 2)
 - [ ] `create_address` flow for cities the user hasn't saved
 - [ ] Phase 2 — agentic ordering (`book_table` / `place_food_order` / `checkout`, confirmation + undo)
 - [ ] Decide the fate of the stale `frontend/src/` Next.js app (now also unauthenticated)

@@ -22,6 +22,7 @@ It returns structured restaurant cards ready to render in the UI.
 """
 
 import asyncio
+import time
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -30,6 +31,7 @@ from app.api.v1.endpoints.auth import get_access_token
 from app.core.ratelimit import rate_limit
 from app.models.user import User
 from app.schemas.plan import SearchRequest
+from app.services import analytics
 from app.services.mcp.orchestrator import MCPOrchestrator
 from app.services.mcp.parse_mcp import (
     mcp_text,
@@ -97,6 +99,7 @@ async def search_restaurants(
     """
     access_token = await get_access_token(user.id)
     orchestrator = get_orchestrator()
+    started_at = time.perf_counter()
 
     context = await orchestrator.gather_context(
         location=request.location,
@@ -189,6 +192,22 @@ async def search_restaurants(
         return ctx.get("data", {}) if isinstance(ctx, dict) else {}
 
     dineout_data = _data("dineout")
+
+    analytics.capture(
+        user.id,
+        "search",
+        {
+            "event_type": request.event_type,
+            "venue_mode": request.venue_mode,
+            "city": request.location,
+            "had_swiggy_token": access_token is not None,
+            "is_refine": bool(request.refine),
+            "offset": request.offset,
+            "dineout_count": len(dineout_options),
+            "food_count": len(food_options),
+            "latency_ms": round((time.perf_counter() - started_at) * 1000),
+        },
+    )
 
     return {
         "dineout": dineout_options,

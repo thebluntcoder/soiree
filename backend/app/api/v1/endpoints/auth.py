@@ -50,6 +50,7 @@ from app.core.ratelimit import rate_limit
 from app.core.redis import get_redis
 from app.models.user import User
 from app.schemas.user import AuthResponse, UserRead
+from app.services import analytics
 from app.services.auth.oauth import (
     TokenIdentityError,
     build_authorize_url,
@@ -138,6 +139,10 @@ async def auth_start(
         code_challenge=code_challenge, state=state, client_id=client_id
     )
 
+    # No Soirée user yet — `state` stands in as a temporary anonymous id.
+    # /auth/callback aliases it onto the real user.id once one exists.
+    analytics.capture(state, "swiggy_auth_started")
+
     return {
         "authorize_url": authorize_url,
         "state": state,
@@ -161,6 +166,7 @@ async def auth_callback(
 
     pkce_data_raw = await redis.get(pkce_redis_key(request.state))
     if not pkce_data_raw:
+        analytics.capture(request.state, "swiggy_auth_failed", {"reason": "invalid_state"})
         raise HTTPException(
             status_code=400,
             detail="Invalid or expired state. Please restart sign-in.",
@@ -176,12 +182,18 @@ async def auth_callback(
             code=request.code, code_verifier=code_verifier
         )
     except Exception as e:  # noqa: BLE001
+        analytics.capture(
+            request.state, "swiggy_auth_failed", {"reason": "token_exchange_failed"}
+        )
         raise HTTPException(status_code=400, detail=f"Token exchange failed: {e}")
 
     access_token = token_response["access_token"]
     try:
         identity = decode_token_identity(access_token)
     except TokenIdentityError as e:
+        analytics.capture(
+            request.state, "swiggy_auth_failed", {"reason": "unreadable_token"}
+        )
         raise HTTPException(
             status_code=502,
             detail=f"Couldn't read your Swiggy identity from the token ({e}).",
@@ -224,6 +236,12 @@ async def auth_callback(
     )
 
     session_token = await create_session(user.id, user.phone or "")
+
+    # Merge the anonymous "started" event from /auth/start onto the real
+    # user, then log completion under their real id from here on.
+    analytics.alias(previous_id=request.state, distinct_id=user.id)
+    analytics.capture(user.id, "swiggy_auth_completed", {"is_new": is_new})
+
     return AuthResponse(
         soiree_session=session_token,
         user=UserRead.model_validate(user),
