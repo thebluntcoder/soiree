@@ -1,22 +1,15 @@
 """
-scripts/seed.py — Seed a local dev login.
+scripts/seed.py — mint a local dev session.
 
-Soirée has no demo user any more — every request needs a real logged-in
-user (phone-OTP). For local work you don't want to wire up SMS, so this
-script:
-
-  1. creates (or reuses) a dev user with phone +91 99999 99999
-  2. mints a Soirée session for them in Redis
-  3. prints the session token and how to use it
-
-Then either:
-  - paste the token into the browser:  localStorage.soiree_session = "<token>"
-  - or just log in through the UI with phone 9999999999 and OTP 000000
-    (the magic code works whenever APP_ENV != production)
+Login is Swiggy OAuth, but for local UI work you don't always want to run
+the real flow. This creates (or reuses) a dev `User` and mints a 30-day
+Soirée session for it — no Swiggy token, so MCP calls fall back to mock
+data, which is exactly what you want offline.
 
     cd backend && python ../scripts/seed.py
 
-Idempotent — safe to re-run (you get a fresh session each time).
+Paste the printed line into the browser console on the demo page. Re-run
+any time for a fresh session.
 """
 
 import asyncio
@@ -33,35 +26,34 @@ from app.core.database import AsyncSessionLocal, engine  # noqa: E402
 from app.models.user import User  # noqa: E402
 from app.services.auth.session import create_session  # noqa: E402
 
-DEV_PHONE = "+919999999999"
+DEV_SWIGGY_SUB = "dev-local-0000"
 
 
 async def seed() -> None:
     async with AsyncSessionLocal() as session:
         user = (
-            await session.execute(select(User).where(User.phone == DEV_PHONE))
+            await session.execute(
+                select(User).where(User.swiggy_sub == DEV_SWIGGY_SUB)
+            )
         ).scalar_one_or_none()
         if not user:
-            user = User(phone=DEV_PHONE, name="Dev User", default_city="Lucknow")
+            user = User(
+                swiggy_sub=DEV_SWIGGY_SUB, name="Dev User", default_city="Lucknow"
+            )
             session.add(user)
             await session.commit()
             await session.refresh(user)
-            print(f"created dev user {user.id} ({DEV_PHONE})")
+            print(f"created dev user {user.id}")
         else:
-            print(f"dev user {user.id} ({DEV_PHONE}) already exists")
+            print(f"dev user {user.id} already exists")
 
-        token = await create_session(user.id, DEV_PHONE)
+        token = await create_session(user.id, "")
 
     await engine.dispose()
 
     print()
-    print("Soirée session (valid 30 days):")
-    print(f"  {token}")
-    print()
-    print("Use it in the browser console on the demo page:")
+    print("Soirée session (valid 30 days) — paste into the demo page console:")
     print(f'  localStorage.soiree_session = "{token}"; location.reload()')
-    print()
-    print("Or log in via the UI: phone 9999999999, OTP 000000")
 
 
 if __name__ == "__main__":

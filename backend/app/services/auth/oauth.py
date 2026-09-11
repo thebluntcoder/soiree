@@ -31,11 +31,13 @@ ENDPOINTS:
   POST /api/v1/auth/logout   → revoke token, clear Redis
 """
 
+import base64
 import hashlib
 import secrets
-import base64
 import time
-from typing import Optional
+
+import jwt
+
 from app.core.config import settings
 
 
@@ -198,3 +200,34 @@ def is_token_expired(expires_at: float, buffer_seconds: int = 60) -> bool:
         True if token is expired or expiring soon
     """
     return time.time() >= (expires_at - buffer_seconds)
+
+
+class TokenIdentityError(ValueError):
+    """The Swiggy access token didn't carry a usable identity."""
+
+
+def decode_token_identity(access_token: str) -> dict:
+    """
+    Pull the user identity out of a Swiggy MCP access token.
+
+    The token is a JWT (HS256) whose payload carries:
+      sub      — stable per-user UUID (the login key)
+      user_id  — Swiggy's numeric customer id
+      exp      — 5-day expiry
+
+    We do NOT verify the signature: we just received this token directly
+    from Swiggy's token endpoint over TLS (it's not something a client
+    sent us), so reading its claims is safe. If Swiggy ever stops issuing
+    JWTs this raises TokenIdentityError and login fails loudly.
+
+    Returns {"sub": ..., "user_id": ...}.
+    """
+    try:
+        claims = jwt.decode(access_token, options={"verify_signature": False})
+    except jwt.PyJWTError as e:
+        raise TokenIdentityError(f"not a readable JWT: {e}") from e
+
+    sub = claims.get("sub")
+    if not sub:
+        raise TokenIdentityError("no `sub` claim in the Swiggy token")
+    return {"sub": str(sub), "user_id": str(claims["user_id"]) if claims.get("user_id") else None}

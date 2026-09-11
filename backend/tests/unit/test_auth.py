@@ -1,14 +1,17 @@
 """
-tests/unit/test_auth.py — phone-OTP login: normalisation, OTP lifecycle,
-Soirée sessions, and the `current_user` gate.
+tests/unit/test_auth.py — Swiggy-OAuth login internals.
 
-No real Redis or DB — a dict-backed fake Redis (same trick as
-test_security.py) and a stubbed DB result.
+Covers: reading the user identity out of a Swiggy access-token JWT, the
+Soirée session lifecycle, and the `current_user` gate. No real Redis / DB
+— a dict-backed fake Redis and a stubbed DB result.
 """
+
+import base64
+import json
 
 import pytest
 
-from app.services.auth import otp as otp_mod
+from app.services.auth import oauth as oauth_mod
 from app.services.auth import session as session_mod
 
 
@@ -21,22 +24,12 @@ class FakeRedis:
     async def setex(self, key, ttl, value):
         self.store[key] = str(value)
 
-    async def set(self, key, value):
-        self.store[key] = str(value)
-
     async def get(self, key):
         return self.store.get(key)
 
     async def delete(self, *keys):
         for k in keys:
             self.store.pop(k, None)
-
-    async def incr(self, key):
-        self.store[key] = str(int(self.store.get(key, 0)) + 1)
-        return int(self.store[key])
-
-    async def expire(self, key, ttl):
-        return True
 
 
 @pytest.fixture
@@ -46,114 +39,39 @@ def fake_redis(monkeypatch):
     async def _get_redis():
         return r
 
-    monkeypatch.setattr(otp_mod, "get_redis", _get_redis)
     monkeypatch.setattr(session_mod, "get_redis", _get_redis)
     return r
 
 
-# ── normalize_phone ─────────────────────────────────────────────────────────
+def _fake_jwt(payload: dict) -> str:
+    def seg(d):
+        return base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b"=").decode()
 
-class TestNormalizePhone:
-    @pytest.mark.parametrize(
-        "raw",
-        [
-            "9876543210",
-            "09876543210",
-            "+919876543210",
-            "+91 98765 43210",
-            "919876543210",
-            "98765-43210",
-        ],
-    )
-    def test_accepts_indian_mobiles(self, raw):
-        assert otp_mod.normalize_phone(raw) == "+919876543210"
-
-    @pytest.mark.parametrize(
-        "raw",
-        ["12345", "1234567890", "5876543210", "+1 415 555 0100", "98765432101"],
-    )
-    def test_rejects_non_mobiles(self, raw):
-        with pytest.raises(ValueError):
-            otp_mod.normalize_phone(raw)
+    return f"{seg({'alg': 'HS256', 'typ': 'JWT'})}.{seg(payload)}.sig"
 
 
-# ── OTP lifecycle ───────────────────────────────────────────────────────────
+# ── decode_token_identity ───────────────────────────────────────────────────
 
-class TestOtpFlow:
-    @pytest.mark.asyncio
-    async def test_issue_then_verify(self, fake_redis, monkeypatch):
-        monkeypatch.setattr(otp_mod, "_is_prod", lambda: True)  # no magic code
-        sent = {}
+class TestDecodeTokenIdentity:
+    def test_pulls_sub_and_user_id(self):
+        tok = _fake_jwt({"sub": "abc-123", "user_id": 22876329, "exp": 9999999999})
+        assert oauth_mod.decode_token_identity(tok) == {
+            "sub": "abc-123",
+            "user_id": "22876329",
+        }
 
-        class Sender:
-            async def send(self, phone, code):
-                sent["phone"], sent["code"] = phone, code
+    def test_user_id_optional(self):
+        tok = _fake_jwt({"sub": "abc-123"})
+        assert oauth_mod.decode_token_identity(tok) == {"sub": "abc-123", "user_id": None}
 
-        monkeypatch.setattr(otp_mod, "get_otp_sender", lambda: Sender())
+    def test_no_sub_is_an_error(self):
+        tok = _fake_jwt({"user_id": 1})
+        with pytest.raises(oauth_mod.TokenIdentityError):
+            oauth_mod.decode_token_identity(tok)
 
-        await otp_mod.issue_otp("+919876543210")
-        assert sent["phone"] == "+919876543210"
-        assert len(sent["code"]) == 6
-
-        assert await otp_mod.verify_otp("+919876543210", sent["code"]) is True
-        # consumed — a second verify with the same code fails
-        assert await otp_mod.verify_otp("+919876543210", sent["code"]) is False
-
-    @pytest.mark.asyncio
-    async def test_wrong_code_and_lockout(self, fake_redis, monkeypatch):
-        monkeypatch.setattr(otp_mod, "_is_prod", lambda: True)
-        monkeypatch.setattr(
-            otp_mod, "get_otp_sender", lambda: _CollectSender()
-        )
-        await otp_mod.issue_otp("+919876543210")
-
-        for _ in range(otp_mod.OTP_MAX_ATTEMPTS):
-            assert await otp_mod.verify_otp("+919876543210", "000001") is False
-        # even the correct code is refused once locked out
-        real = fake_redis.store["otp:+919876543210"]
-        assert await otp_mod.verify_otp("+919876543210", real) is False
-
-    @pytest.mark.asyncio
-    async def test_magic_code_only_outside_prod(self, fake_redis, monkeypatch):
-        monkeypatch.setattr(otp_mod, "_is_prod", lambda: False)
-        assert await otp_mod.verify_otp("+919555555555", otp_mod.DEV_MAGIC_CODE) is True
-
-        monkeypatch.setattr(otp_mod, "_is_prod", lambda: True)
-        assert await otp_mod.verify_otp("+919555555555", otp_mod.DEV_MAGIC_CODE) is False
-
-    @pytest.mark.asyncio
-    async def test_dev_login_phone_bypasses_in_prod(self, fake_redis, monkeypatch):
-        monkeypatch.setattr(otp_mod, "_is_prod", lambda: True)
-        monkeypatch.setattr(
-            otp_mod.settings, "DEV_LOGIN_PHONES", "9998887777, +91 90000 00001"
-        )
-        # allowlisted (either format) → magic code works even in prod
-        assert await otp_mod.verify_otp("+919998887777", otp_mod.DEV_MAGIC_CODE) is True
-        assert await otp_mod.verify_otp("+919000000001", otp_mod.DEV_MAGIC_CODE) is True
-        # everyone else → still rejected in prod
-        assert await otp_mod.verify_otp("+919111111111", otp_mod.DEV_MAGIC_CODE) is False
-
-    @pytest.mark.asyncio
-    async def test_dev_login_phone_skips_sms(self, fake_redis, monkeypatch):
-        monkeypatch.setattr(otp_mod, "_is_prod", lambda: True)
-        monkeypatch.setattr(otp_mod.settings, "DEV_LOGIN_PHONES", "9998887777")
-        sent: list[str] = []
-
-        class Sender:
-            async def send(self, phone, code):
-                sent.append(phone)
-
-        monkeypatch.setattr(otp_mod, "get_otp_sender", lambda: Sender())
-
-        await otp_mod.issue_otp("+919998887777")
-        assert sent == []  # no SMS burned on a dev-login number
-        await otp_mod.issue_otp("+919111111111")
-        assert sent == ["+919111111111"]  # a normal number still sends
-
-
-class _CollectSender:
-    async def send(self, phone, code):
-        pass
+    def test_opaque_token_is_an_error(self):
+        with pytest.raises(oauth_mod.TokenIdentityError):
+            oauth_mod.decode_token_identity("not-a-jwt-at-all")
 
 
 # ── Soirée session ──────────────────────────────────────────────────────────
@@ -161,11 +79,11 @@ class _CollectSender:
 class TestSession:
     @pytest.mark.asyncio
     async def test_create_resolve_revoke(self, fake_redis):
-        token = await session_mod.create_session("user-123", "+919876543210")
+        token = await session_mod.create_session("user-123", "")
         assert token
 
         data = await session_mod.resolve_session(token)
-        assert data == {"user_id": "user-123", "phone": "+919876543210"}
+        assert data == {"user_id": "user-123", "phone": ""}
 
         await session_mod.revoke_session(token)
         assert await session_mod.resolve_session(token) is None
@@ -191,32 +109,123 @@ class TestCurrentUser:
         assert ei.value.detail["code"] == "NOT_LOGGED_IN"
 
     @pytest.mark.asyncio
-    async def test_valid_session_returns_user(self, fake_redis, monkeypatch):
+    async def test_valid_session_returns_user(self, monkeypatch):
         from app.api.v1 import deps
 
         monkeypatch.setattr(
-            deps, "resolve_session",
-            _async_return({"user_id": "u1", "phone": "+919876543210"}),
+            deps, "resolve_session", _async_return({"user_id": "u1", "phone": ""})
         )
         user = _User(id="u1", is_active=True)
         got = await deps.current_user(x_soiree_session="tok", db=_FakeDB(user))
         assert got is user
 
     @pytest.mark.asyncio
-    async def test_inactive_user_401(self, fake_redis, monkeypatch):
+    async def test_inactive_user_401(self, monkeypatch):
         from fastapi import HTTPException
 
         from app.api.v1 import deps
 
         monkeypatch.setattr(
-            deps, "resolve_session",
-            _async_return({"user_id": "u1", "phone": "+919876543210"}),
+            deps, "resolve_session", _async_return({"user_id": "u1", "phone": ""})
         )
         with pytest.raises(HTTPException) as ei:
             await deps.current_user(
                 x_soiree_session="tok", db=_FakeDB(_User(id="u1", is_active=False))
             )
         assert ei.value.status_code == 401
+
+
+# ── /auth/callback flow ─────────────────────────────────────────────────────
+
+class TestAuthCallback:
+    @pytest.mark.asyncio
+    async def test_new_user_gets_session(self, fake_redis, monkeypatch):
+        from app.api.v1.endpoints import auth as auth_ep
+
+        fake_redis.store[auth_ep.pkce_redis_key("st8")] = json.dumps(
+            {"code_verifier": "v", "state": "st8"}
+        )
+        tok = _fake_jwt({"sub": "swg-77", "user_id": 22876329})
+
+        async def _exchange(code, code_verifier):
+            assert (code, code_verifier) == ("auth-code", "v")
+            return {"access_token": tok, "expires_in": 432000, "scope": "mcp:tools"}
+
+        monkeypatch.setattr(auth_ep, "get_redis", _lambda_async(fake_redis))
+        monkeypatch.setattr(auth_ep, "exchange_code_for_token", _exchange)
+        monkeypatch.setattr(auth_ep, "create_session", _async_return("sess-tok"))
+
+        db = _CaptureDB(existing=None)
+        resp = await auth_ep.auth_callback(
+            auth_ep.CallbackRequest(code="auth-code", state="st8"), db=db
+        )
+        assert resp.soiree_session == "sess-tok"
+        assert resp.is_new is True
+        assert resp.user.swiggy_user_id == "22876329"
+        assert db.added.swiggy_sub == "swg-77"
+        # token cached under the new user's id, encrypted
+        key = auth_ep.token_redis_key(db.added.id)
+        assert key in fake_redis.store and "swg-77" not in fake_redis.store[key]
+        # pkce record consumed
+        assert auth_ep.pkce_redis_key("st8") not in fake_redis.store
+
+    @pytest.mark.asyncio
+    async def test_bad_state_400(self, fake_redis, monkeypatch):
+        from fastapi import HTTPException
+
+        from app.api.v1.endpoints import auth as auth_ep
+
+        monkeypatch.setattr(auth_ep, "get_redis", _lambda_async(fake_redis))
+        with pytest.raises(HTTPException) as ei:
+            await auth_ep.auth_callback(
+                auth_ep.CallbackRequest(code="c", state="nope"), db=_CaptureDB(None)
+            )
+        assert ei.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_opaque_token_502(self, fake_redis, monkeypatch):
+        from fastapi import HTTPException
+
+        from app.api.v1.endpoints import auth as auth_ep
+
+        fake_redis.store[auth_ep.pkce_redis_key("st9")] = json.dumps(
+            {"code_verifier": "v", "state": "st9"}
+        )
+        monkeypatch.setattr(auth_ep, "get_redis", _lambda_async(fake_redis))
+        monkeypatch.setattr(
+            auth_ep, "exchange_code_for_token",
+            _async_return({"access_token": "opaque-not-a-jwt"}),
+        )
+        with pytest.raises(HTTPException) as ei:
+            await auth_ep.auth_callback(
+                auth_ep.CallbackRequest(code="c", state="st9"), db=_CaptureDB(None)
+            )
+        assert ei.value.status_code == 502
+
+
+def _lambda_async(value):
+    async def _f():
+        return value
+
+    return _f
+
+
+class _CaptureDB:
+    def __init__(self, existing):
+        self._existing = existing
+        self.added = None
+
+    async def execute(self, *_a, **_kw):
+        return _Result(self._existing)
+
+    def add(self, obj):
+        self.added = obj
+
+    async def commit(self):
+        pass
+
+    async def refresh(self, obj):
+        pass
 
 
 # ── tiny stubs for current_user ─────────────────────────────────────────────

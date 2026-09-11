@@ -36,8 +36,8 @@ No one has built the **full-evening arc** before: start at a restaurant (Dineout
 | FastAPI backend | ✅ Working |
 | SQLModel DB models (User, Event, Plan) | ✅ Working |
 | Swiggy MCP clients (Food, Instamart, Dineout) | ✅ Live via user OAuth token; mock fallback with no token |
-| **Soirée login — phone OTP (MSG91 / console)** | ✅ Working — every endpoint requires it; `demo-user-001` removed |
-| Swiggy OAuth 2.1 PKCE (phone + OTP), keyed to the logged-in user | ✅ Working |
+| **Login = Swiggy OAuth** — one sign-in, keyed off the token's `sub` claim; every endpoint requires it | ✅ Working |
+| Swiggy OAuth 2.1 PKCE (phone + OTP on Swiggy's page) | ✅ Working |
 | MCP Orchestrator (asyncio.gather) | ✅ Working |
 | Offer engine (Redis cache) | ✅ Working |
 | Claude plan generation (SSE) | ✅ Working |
@@ -57,8 +57,8 @@ No one has built the **full-evening arc** before: start at a restaurant (Dineout
 ## Features
 
 ### Phase 1 — Plan & Present ✅ Built
-- **Soirée login — phone OTP** — `POST /users/otp/request` → `/users/otp/verify` → a 30-day session token sent as `X-Soiree-Session`. Sender is MSG91 when configured, otherwise the code is logged and (outside production) `000000` works. Every plan / event / search / chat endpoint requires a logged-in user — there is no demo user.
-- **Swiggy OAuth 2.1 PKCE** — phone + OTP on Swiggy's own page; token in Redis (5-day) **keyed to the logged-in Soirée user**, threaded into every MCP call as a Bearer token. No token → mock data of the same shape.
+- **Login = Swiggy OAuth** — one "Sign in with Swiggy" (phone + OTP on Swiggy's own page). The MCP access token is a JWT; its `sub` claim identifies the user, from which Soirée get-or-creates a `User` and mints a 30-day session sent as `X-Soiree-Session`. No separate account, no phone-OTP, no SMS provider. Every plan / event / search / chat endpoint requires it.
+- **Swiggy token** in Redis (5-day, no refresh) keyed by `user.id`, threaded into every MCP call as a Bearer token. When it lapses the session may still be valid — the UI shows "Reconnect Swiggy" (same OAuth, usually one tap). No token → mock data of the same shape.
 - **Event setup** — 6 occasion types (Date / Friends / Birthday / Corporate / House Party / Family), alcohol preference (yes / no / any)
 - **Guest roster** — named guests with per-person diet + allergens, or headcount-only mode
 - **Location** — city/area text or GPS detect. The typed city is matched to one of your **saved Swiggy addresses** (with renamed-city aliases); if you have none there, the plan falls back to your default address and says so.
@@ -161,7 +161,7 @@ The order agent (Phase 2) always surfaces a confirmation screen before calling a
 | Migrations | **Alembic** | Standard SQLAlchemy migration tool |
 | Cache | **Redis** | Offer TTLs (5min), session storage, Celery broker |
 | Background jobs | **Celery** | Async order placement (Phase 2) |
-| Auth | **Phone OTP** (custom, `services/auth/`) + **MSG91** sender | India-first; opaque session tokens in Redis, magic code `000000` outside prod |
+| Auth | **Swiggy OAuth 2.1 PKCE** (`services/auth/`) | Login = connect Swiggy; user id from the token's `sub`; opaque 30-day session tokens in Redis |
 | Testing | **pytest** + **pytest-asyncio** + **respx** | Mock MCP responses in CI |
 
 ### Frontend
@@ -209,20 +209,19 @@ soiree/
 │   │   │   ├── router.py                  # Mounts all endpoint routers
 │   │   │   └── endpoints/
 │   │   │       ├── deps.py                # current_user — the auth gate (401 without a session)
-│   │   │       ├── auth.py                # Swiggy OAuth 2.1 PKCE, token keyed by user_id
+│   │   │       ├── auth.py                # Swiggy OAuth = login: start / callback / status / logout
 │   │   │       ├── search.py              # POST /search/ — pre-generation restaurant discovery
 │   │   │       ├── events.py              # CRUD (owned by current_user)
 │   │   │       ├── plans.py               # SSE streaming plan generation + chat (current_user)
-│   │   │       ├── users.py               # phone-OTP login: /otp/request, /otp/verify, /me, /logout
+│   │   │       ├── users.py               # GET /users/me, POST /users/logout
 │   │   │       ├── offers.py              # GET /offers/ — live offers for a location + budget
 │   │   │       └── orders.py              # GET /orders/{plan_id} — order status (read-only)
 │   │   ├── lib/
 │   │   │   └── parse_plan.py              # Server-side plan parser (mirrors frontend parsePlan.ts)
 │   │   ├── services/
 │   │   │   ├── plan_service.py            # DB operations: create_plan, update_plan_text, get_plan
-│   │   │   ├── auth/otp.py                # OTP gen/verify + MSG91 / Console senders
 │   │   │   ├── auth/session.py            # Soirée session tokens in Redis
-│   │   │   ├── auth/oauth.py              # PKCE, DCR, token exchange
+│   │   │   ├── auth/oauth.py              # PKCE, DCR, token exchange, decode_token_identity
 │   │   │   ├── mcp/
 │   │   │   │   ├── base.py                # BaseMCPClient — shared JSON-RPC transport + auth
 │   │   │   │   ├── orchestrator.py        # asyncio.gather() across all 3 MCPs
@@ -384,34 +383,35 @@ curl http://localhost:8000/health
 
 ---
 
-## Auth — two layers
+## Auth — Swiggy OAuth is the login
 
-1. **Soirée login (phone OTP).** Required for every plan / event / search /
-   chat / order endpoint. `POST /users/otp/request {phone}` →
-   `POST /users/otp/verify {phone, code, name?}` → `{ soiree_session, user }`.
-   The token is an opaque string in Redis (`soiree_session:{token}`, 30-day
-   TTL), sent on every request as **`X-Soiree-Session`**. `GET /users/me`,
-   `POST /users/logout`. SMS goes via **MSG91** when `MSG91_AUTH_KEY` +
-   `MSG91_TEMPLATE_ID` are set; otherwise the code is logged and, when
-   `APP_ENV != production`, the magic code **`000000`** verifies.
-   `DEV_LOGIN_PHONES` extends that magic code to named numbers in prod too
-   (solo testing without an SMS provider). `scripts/seed.py` mints a dev
-   session (phone `9999999999`); `scripts/peek_token.py` dumps a stored
-   Swiggy token's JWT claims.
+No static API key, no separate account, no SMS. One flow:
 
-2. **Swiggy MCP access.** No static API key — each user authorises Soirée
-   through Swiggy's own OAuth 2.1 PKCE flow (phone + OTP). The resulting
-   access token is stored in Redis **keyed to the Soirée `user.id`**
-   (`swiggy_token:{user_id}`) and threaded into every MCP call as a Bearer
-   token. `/auth/start` → Swiggy consent → `/auth/callback` (both carry
-   `X-Soiree-Session`); `/auth/status`, `/auth/logout`.
+```text
+GET  /auth/start            (public)  → PKCE + state → Swiggy authorize URL
+     ↓ user logs in on Swiggy's page (phone + OTP)
+POST /auth/callback {code, state}     → exchange code for the MCP token
+                                       → the token is a JWT; its `sub` claim
+                                         is the user → get-or-create User
+                                       → { soiree_session, user, is_new,
+                                           swiggy_expires_at }
+```
 
-   - Logged-in user **with** a Swiggy token → **live** Swiggy data.
-   - Logged-in user **without** one → **mock** data (identical shape).
+`soiree_session` is an opaque 30-day Redis token (`soiree_session:{token}`),
+sent on every request as **`X-Soiree-Session`** → `deps.current_user` → 401
+without it. The Swiggy access token is stored `swiggy_token:{user_id}`
+(encrypted, 5-day, no refresh) and threaded into every MCP call as a Bearer
+token — `GET /auth/status` reports whether it's still live, and the UI shows
+"Reconnect Swiggy" (same OAuth) when it isn't.
 
-   The switch is per-call, in `BaseMCPClient._call_mcp` — nothing to
-   configure. `REDIRECT_URI` must be whitelisted with Swiggy. See
-   `docs/mcp-integration.md`.
+- Logged-in user **with** a live Swiggy token → **live** Swiggy data.
+- Logged-in user **without** one → **mock** data (identical shape).
+
+The switch is per-call, in `BaseMCPClient._call_mcp`. `REDIRECT_URI` must be
+whitelisted with Swiggy. `scripts/seed.py` mints a dev session (no Swiggy);
+`scripts/peek_token.py` dumps a stored token's JWT claims;
+`scripts/relink_user.py` moves a pre-OAuth account's data to the new one.
+See `docs/mcp-integration.md`.
 
 ---
 
@@ -748,9 +748,9 @@ Bug appears
 - [x] Typed location → matched to a saved Swiggy address (+ renamed-city aliases, fallback banner)
 - [x] Alembic migrations — real DDL, `create_all()` removed
 - [x] `offers` / `users` / `orders` endpoints; per-service cost persistence
-- [x] **Phone-OTP login — `demo-user-001` removed; every endpoint gated**
+- [x] **Login = Swiggy OAuth** — `demo-user-001` and phone-OTP both gone; every endpoint gated
 - [x] Production hardening — `SECRET_KEY` guard, token encryption, rate limits, `/docs` off in prod
-- [x] CI — pytest + migration round-trip, 152 tests
+- [x] CI — pytest + migration round-trip, 148 tests
 
 ### Next
 
@@ -758,7 +758,6 @@ See [TODO.md](TODO.md) for the full prioritised list.
 
 - [ ] Privacy policy + consent screen + `DELETE /users/me` (data purge)
 - [ ] Product analytics + Anthropic token-cost logging
-- [ ] MSG91 account + live template (sender code is in place, untested)
 - [ ] `create_address` flow for cities the user hasn't saved
 - [ ] Phase 2 — agentic ordering (`book_table` / `place_food_order` / `checkout`, confirmation + undo)
 - [ ] Decide the fate of the stale `frontend/src/` Next.js app (now also unauthenticated)

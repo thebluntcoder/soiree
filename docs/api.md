@@ -2,44 +2,36 @@
 
 Base URL: `/api/v1` · Interactive docs: `GET /docs` (dev only) · Health: `GET /health`
 
-**Every endpoint below except `GET /offers/` and the OTP endpoints requires a
-logged-in Soirée user.** Log in with phone-OTP (see *Login*), then send the
-returned token as **`X-Soiree-Session`** on every request. Missing / invalid
-token → `401 {"detail": {"code": "NOT_LOGGED_IN", "message": "…"}}`.
+**Every endpoint below except `GET /offers/` and `GET|POST /auth/start|callback`
+requires a logged-in user.** Sign in with Swiggy (see *Auth*), then send the
+returned `soiree_session` as **`X-Soiree-Session`** on every request. Missing
+/ invalid token → `401 {"detail": {"code": "NOT_LOGGED_IN", "message": "…"}}`.
 
-Once logged in, if the user has also connected Swiggy (see *Swiggy link*),
-plan/search calls use their live Swiggy MCP data; otherwise every MCP call
-returns mock data with the same shape.
+Once logged in, if the Swiggy token is still live, plan/search calls use live
+Swiggy MCP data; otherwise every MCP call returns mock data with the same
+shape.
 
 ---
 
-## Login (phone OTP)
+## Auth — Swiggy OAuth is the login
 
-| Method | Path | Notes |
-|---|---|---|
-| `POST` | `/users/otp/request` | Body `{ phone }` (any Indian mobile format). Sends a 6-digit code. → `{ sent: true, phone: "+91…" }`. Rate-limited 5 / 10 min per number. |
-| `POST` | `/users/otp/verify` | Body `{ phone, code, name? }`. → `{ soiree_session, user, is_new }`. Creates the user on first login. Code TTL 5 min, 5 attempts. |
-| `GET`  | `/users/me` | The current user (`X-Soiree-Session`). |
-| `POST` | `/users/logout` | Revokes the session. |
+There is no separate account. Signing in = authorising Soirée against a
+Swiggy account; the MCP access token (a JWT) identifies the user via its
+`sub` claim.
 
-Sender: **MSG91** when `MSG91_AUTH_KEY` + `MSG91_TEMPLATE_ID` are set,
-otherwise the code is logged server-side and — when `APP_ENV != production` —
-the magic code **`000000`** always verifies. Session tokens live 30 days in
-Redis.
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| `GET`  | `/auth/start` | public | → `{ authorize_url, state }`. PKCE + state cached 2 min. Redirect the user to `authorize_url`. Rate-limited 30/hr per IP. |
+| `POST` | `/auth/callback` | public | Body `{ code, state }`. Exchanges the code, reads the token's `sub`, get-or-creates the `User`, stores the encrypted token (`swiggy_token:{user_id}`, 5-day), mints a 30-day session. → `{ soiree_session, user, is_new, swiggy_expires_at }`. `400` bad/expired state, `502` if the token isn't a readable JWT. |
+| `GET`  | `/auth/status` | session | → `{ connected: bool, expires_at }` — is the Swiggy token still live? |
+| `POST` | `/auth/logout` | session | Revokes the Swiggy token **and** the session. |
+| `GET`  | `/users/me` | session | The current user. |
+| `POST` | `/users/logout` | session | Drops the session only (Swiggy token left to expire). |
 
-## Swiggy link (OAuth 2.1 PKCE)
-
-All four require `X-Soiree-Session`. The Swiggy token is stored against the
-Soirée `user.id`, so one login owns one Swiggy connection.
-
-| Method | Path | Notes |
-|---|---|---|
-| `GET`  | `/auth/start` | → `{ authorize_url, state }`. Redirect the user to `authorize_url`. |
-| `POST` | `/auth/callback` | Body `{ code, state }`. Exchanges the code, stores the token. → `{ connected: true, expires_at }`. `403` if a different session started this `state`. |
-| `GET`  | `/auth/status` | → `{ connected: bool, expires_at }`. |
-| `POST` | `/auth/logout` | Revokes the Swiggy token and forgets it. |
-
-Token lifetime is 5 days, no refresh — re-run `/auth/start` on expiry.
+The Swiggy token lasts 5 days, no refresh. When it lapses the 30-day session
+still works but MCP calls fail — `/auth/status` returns `connected: false`
+and the client sends the user back through `/auth/start` (one tap if Swiggy
+still has them logged in).
 
 ## Search — restaurant discovery (Step 1.5)
 

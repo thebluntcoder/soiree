@@ -83,44 +83,35 @@ records what's next. Roughly ordered by priority within each section.
       valid Soirée session). See Auth below.
 - [x] Rate limiter keys on the Soirée session first (`X-Soiree-Session`),
       then legacy Swiggy session, then IP.
-- [x] Swiggy OAuth ownership check — the user who starts `/auth/start`
-      must be the one who finishes `/auth/callback` (state blob carries the
-      `user_id`).
 
-### Auth ✅ (full replacement — phone-OTP)
+### Auth ✅ (Swiggy OAuth is the login)
 
-- [x] Phone-OTP login for Soirée itself — `POST /users/otp/request` →
-      `POST /users/otp/verify` → `{ soiree_session, user, is_new }`.
-      Pluggable sender: **MSG91** when `MSG91_AUTH_KEY` + `MSG91_TEMPLATE_ID`
-      are set, else **Console** (logs the code; magic code `000000` accepted
-      when `APP_ENV != production`). Code TTL 5 min, 5 attempts, per-number
-      request throttle (5 / 10 min).
-- [x] Opaque session token in Redis (`soiree_session:{token}`, 30-day TTL),
-      sent as `X-Soiree-Session`. `GET /users/me`, `POST /users/logout`.
-- [x] Swiggy OAuth token keyed by `user.id` (`swiggy_token:{user_id}`) — one
-      Soirée login owns one Swiggy connection; `/auth/*` all require login.
-- [x] Events & plans filtered by `user.id` with ownership checks (404 on
-      someone else's plan/event).
-- [x] `last_login_at` column + idempotent Alembic migration
-      (`a1b2c3d4e5f6`).
-- [x] `demo.html` login modal (phone → OTP → name), account chip, 401 →
-      re-prompt, `scripts/seed.py` now mints a dev session (phone
-      `9999999999`, OTP `000000`).
-- [x] `DEV_LOGIN_PHONES` — allowlisted numbers use `000000` in prod too and
-      skip the SMS send (solo testing without an SMS provider / DLT).
-      Startup warns while it's set. `main.py`, `services/auth/otp.py`.
-- [ ] **Decide: Swiggy OAuth as the *sole* login?** One Swiggy OTP would
-      cover both "log into Soirée" and "connect Swiggy" — no MSG91, no DLT,
-      no cost. Blocker: does the Swiggy access token carry a stable user id?
-      Run `scripts/peek_token.py` against a real token. If it's a JWT with a
-      `sub` / customer id / phone → `/auth/start` goes public, `/auth/callback`
-      derives the user + mints the 30-day session, delete `otp.py`. If the
-      token is opaque → keep phone-OTP, lean on "already-logged-into-Swiggy
-      makes connect a one-tap".
-- [ ] MSG91 account + real template ID (only if phone-OTP survives the
-      decision above — env vars wired, sender untested against the live API).
+Decided from `scripts/peek_token.py`: the Swiggy MCP access token is an
+HS256 JWT carrying `sub` (stable per-user UUID) + `user_id` (Swiggy's
+customer id). So one Swiggy sign-in covers everything.
+
+- [x] `GET /auth/start` is public — PKCE + `{code_verifier, state}` in Redis.
+- [x] `POST /auth/callback {code, state}` — exchange code → `decode_token_identity`
+      (`oauth.py`, no signature check) → get-or-create `User` by `swiggy_sub`
+      → store `swiggy_token:{user.id}` → mint 30-day session →
+      `{ soiree_session, user, is_new, swiggy_expires_at }`. Opaque token → 502.
+- [x] `GET /auth/status` `{connected, expires_at}`; `POST /auth/logout`
+      revokes token + session; `POST /users/logout` drops the session only.
+- [x] Model: `users.swiggy_sub` (unique) + `swiggy_user_id`; `phone` nullable.
+      Alembic `b2c3d4e5f6a7` (idempotent, batch-mode for SQLite).
+- [x] Deleted `services/auth/otp.py`, `/users/otp/*`, `MSG91_*` +
+      `DEV_LOGIN_PHONES`.
+- [x] `demo.html` — one "Sign in with Swiggy" button; "Reconnect Swiggy"
+      chip when the token lapses. Callback page mints the session.
+- [x] `scripts/seed.py` (fake local user + session), `scripts/relink_user.py`
+      (move pre-OAuth events/plans to the new row).
+- [ ] Run `scripts/relink_user.py` once in prod after the first Swiggy
+      sign-in, to carry the old `Uttkarsh` account's events/plans over.
+- [ ] Silent-refresh idea — when `/auth/status` reports the token expiring
+      within ~a day, prompt "Reconnect Swiggy" proactively instead of on
+      the next failed MCP call.
 - [ ] Wire the stale Next.js app (`frontend/src/`) to the session, or drop
-      it — it now 401s on every call (already flagged stale for OAuth).
+      it — it 401s on every call (already flagged stale for OAuth).
 
 ### Legal / privacy
 - [ ] Privacy policy + explicit consent screen before Swiggy OAuth
@@ -171,12 +162,14 @@ records what's next. Roughly ordered by priority within each section.
 
 ## 6. Testing
 
-- [x] Auth tests — `tests/unit/test_auth.py` covers `normalize_phone`,
-      OTP issue/verify/lockout/magic-code, session create/resolve/revoke,
-      and the `current_user` gate (401 paths). Rate-limiter precedence in
-      `test_security.py`.
-- [ ] `/auth/*` endpoint tests — `services/auth/oauth.py` (PKCE, token
-      exchange) + the Swiggy-link endpoints still need a mocked-httpx test
+- [x] Auth tests — `tests/unit/test_auth.py` covers `decode_token_identity`
+      (JWT → sub/user_id, opaque → error), `/auth/callback` (new-user
+      session, bad state, opaque token), session create/resolve/revoke, and
+      the `current_user` gate (401 paths). Rate-limiter precedence in
+      `test_security.py`. Stream heartbeat in `test_plans_stream.py`.
+- [ ] `services/auth/oauth.py` PKCE + token-exchange still need a
+      mocked-httpx test; an httpx ASGITransport end-to-end for `/auth/*`
+      would need `aiosqlite` in requirements (no DB fixtures today).
 - [ ] `refine_plan` test with a mocked Anthropic client (patch classify →
       assert patch sanitising + action routing)
 - [ ] `tests/integration/test_mcp.py` — a real-token contract test if a
