@@ -288,6 +288,11 @@ class MCPOrchestrator:
             location,
             city_matched,
             address_label,
+            extra={
+                "food_address_id": address_id,
+                "dineout_address_id": dineout_address_id,
+                "city_matched": city_matched,
+            },
         )
         return address_id, {
             "address_id": dineout_address_id,

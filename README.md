@@ -47,6 +47,7 @@ No one has built the **full-evening arc** before: start at a restaurant (Dineout
 | Events CRUD API · `/offers` · `/users/me` · `/orders/{id}` | ✅ Working |
 | Privacy policy + consent screen + `DELETE /users/me` (data purge) | ✅ Working — policy is a draft, needs a lawyer |
 | Product analytics (PostHog) + Anthropic token-cost tracking | ✅ Working — behind `POSTHOG_API_KEY`, no-op when unset |
+| Structured (JSON) logging | ✅ Working — `core/logging.py`, every `app.*` logger |
 | Plan persistence to DB (+ per-service costs) | ✅ Working |
 | Alembic migrations (real DDL, no `create_all`) | ✅ Working |
 | CI — pytest + migration round-trip | ✅ Working |
@@ -755,7 +756,9 @@ Bug appears
 - [x] Production hardening — `SECRET_KEY` guard, token encryption, rate limits, `/docs` off in prod
 - [x] **Privacy policy + consent screen + `DELETE /users/me`** (data purge) — policy is a draft, needs a lawyer
 - [x] **Product analytics (PostHog) + Anthropic token-cost tracking** — behind `POSTHOG_API_KEY`, no-op when unset
-- [x] CI — pytest + migration round-trip, 160 tests
+- [x] Structured (JSON) logging — every `app.*` log call, uvicorn's own logs untouched
+- [x] CI — pytest + migration round-trip, 189 tests
+- [x] E2E (Playwright) against `demo.html` — live FastAPI + Postgres + Redis, real browser
 
 ### Next
 

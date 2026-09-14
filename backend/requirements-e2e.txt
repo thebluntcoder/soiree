@@ -1,0 +1,15 @@
+# E2E-only dependencies — NOT installed by the Dockerfile / production image.
+#
+# Separate from requirements.txt on purpose: playwright needs a `playwright
+# install chromium` step that downloads ~250MB of browser binaries, which
+# has no business being part of every prod build or `pip install -r
+# requirements.txt` for someone just running the API.
+#
+#   pip install -r requirements.txt -r requirements-e2e.txt
+#   playwright install chromium
+#   pytest tests_e2e -q          # NOT part of the default `pytest -q`
+#
+# See tests_e2e/conftest.py for what the suite needs running first
+# (Postgres + Redis via docker compose).
+playwright==1.62.0
+pytest-playwright==0.9.0

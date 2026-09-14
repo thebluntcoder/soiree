@@ -44,6 +44,9 @@ postgres_data/
 *.log
 celerybeat-schedule
 celerybeat.pid
+
+# graphify — local knowledge-graph cache/output, regenerate with /graphify
+graphify-out/
 # Python
 __pycache__/
 **/__pycache__/

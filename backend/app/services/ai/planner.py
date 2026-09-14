@@ -73,7 +73,12 @@ async def _enrich_dineout(
         )
         details = parse_restaurant_details(raw)
     except Exception as e:  # noqa: BLE001 — enrichment is optional
-        logger.warning("Dineout enrich failed for %s: %s", selected.get("id"), e)
+        logger.warning(
+            "Dineout enrich failed for %s: %s",
+            selected.get("id"),
+            e,
+            extra={"restaurant_id": selected.get("id")},
+        )
         return selected
 
     if not details:

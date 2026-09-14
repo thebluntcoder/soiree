@@ -20,9 +20,11 @@ WHAT WE TEST:
 import json
 from unittest.mock import AsyncMock
 
+import anthropic
+import httpx
 import pytest
 from app.services.ai.prompts import build_system_prompt, build_user_prompt
-from app.services.ai.planner import _enrich_dineout, _sanitize_patch
+from app.services.ai.planner import _enrich_dineout, _sanitize_patch, refine_plan
 from app.services.mcp.orchestrator import MCPOrchestrator
 
 
@@ -409,3 +411,153 @@ class TestEnrichDineout:
         orch = self._orch({"result": {"content": [{"type": "text", "text": "no fields"}]}})
         sparse = {"id": "x", "name": "Somewhere"}
         assert await _enrich_dineout(orch, sparse, {}, "tok") == sparse
+
+
+# ── refine_plan: classify (answer vs modify) + patch sanitising ─────────────
+
+class _FakeContent:
+    def __init__(self, text):
+        self.text = text
+
+
+class _FakeUsage:
+    def __init__(self, input_tokens, output_tokens):
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+
+
+class _FakeMessage:
+    def __init__(self, text, input_tokens=120, output_tokens=40):
+        self.content = [_FakeContent(text)]
+        self.usage = _FakeUsage(input_tokens, output_tokens)
+
+
+def _patch_claude(monkeypatch, *, text=None, side_effect=None):
+    """Monkeypatch planner._get_clients so refine_plan talks to a fake Claude."""
+    from app.services.ai import planner as planner_mod
+
+    client = AsyncMock()
+    if side_effect is not None:
+        client.messages.create = AsyncMock(side_effect=side_effect)
+    else:
+        client.messages.create = AsyncMock(return_value=_FakeMessage(text))
+    monkeypatch.setattr(planner_mod, "_get_clients", lambda: (client, None, None))
+    return client
+
+
+class TestRefinePlan:
+    """refine_plan(): classify a follow-up as modify/answer, sanitise the patch."""
+
+    @pytest.mark.asyncio
+    async def test_modify_action_sanitises_the_patch(self, monkeypatch):
+        _patch_claude(
+            monkeypatch,
+            text=json.dumps(
+                {
+                    "action": "modify",
+                    "reply": "Bumping the budget and switching to hybrid.",
+                    "patch": {
+                        "budget": 999999,  # over the 50000 cap — must clamp
+                        "venue_mode": "not_a_real_mode",  # invalid — must drop
+                        "notes": "x" * 600,  # over 500 chars — must truncate
+                        "unknown_field": "ignored",  # not refinable — must drop
+                    },
+                }
+            ),
+        )
+        result = await refine_plan(
+            user_message="raise the budget and do it at home",
+            conversation_history=[],
+            event_data={"event_type": "date"},
+            plan_text="some plan",
+        )
+        assert result["action"] == "modify"
+        assert result["reply"] == "Bumping the budget and switching to hybrid."
+        assert result["patch"]["budget"] == 50000
+        assert "venue_mode" not in result["patch"]
+        assert len(result["patch"]["notes"]) == 500
+        assert "unknown_field" not in result["patch"]
+
+    @pytest.mark.asyncio
+    async def test_answer_action_passes_reply_through(self, monkeypatch):
+        _patch_claude(
+            monkeypatch,
+            text=json.dumps(
+                {"action": "answer", "reply": "The Biryani at ₹220 is the bestseller."}
+            ),
+        )
+        result = await refine_plan(
+            user_message="what's good there?",
+            conversation_history=[],
+            event_data={},
+            plan_text="plan mentioning Biryani ₹220",
+        )
+        assert result == {
+            "action": "answer",
+            "reply": "The Biryani at ₹220 is the bestseller.",
+            "patch": {},
+        }
+
+    @pytest.mark.asyncio
+    async def test_modify_with_no_refinable_fields_falls_back_to_answer(self, monkeypatch):
+        _patch_claude(
+            monkeypatch,
+            text=json.dumps(
+                {"action": "modify", "reply": "…", "patch": {"totally_unknown": 1}}
+            ),
+        )
+        result = await refine_plan("x", [], {}, "plan")
+        assert result["action"] == "answer"
+        assert result["patch"] == {}
+
+    @pytest.mark.asyncio
+    async def test_strips_markdown_json_fence(self, monkeypatch):
+        _patch_claude(
+            monkeypatch,
+            text='```json\n{"action": "answer", "reply": "fenced"}\n```',
+        )
+        result = await refine_plan("x", [], {}, "plan")
+        assert result == {"action": "answer", "reply": "fenced", "patch": {}}
+
+    @pytest.mark.asyncio
+    async def test_invalid_json_falls_back_gracefully(self, monkeypatch):
+        _patch_claude(monkeypatch, text="not json at all")
+        result = await refine_plan("x", [], {}, "plan")
+        assert result["action"] == "answer"
+        assert result["patch"] == {}
+        assert "try rephrasing" in result["reply"].lower()
+
+    @pytest.mark.asyncio
+    async def test_anthropic_api_error_falls_back_gracefully(self, monkeypatch):
+        err = anthropic.APIError(
+            "boom", request=httpx.Request("POST", "https://api.anthropic.com"), body=None
+        )
+        _patch_claude(monkeypatch, side_effect=err)
+        result = await refine_plan("x", [], {}, "plan")
+        assert result["action"] == "answer"
+        assert result["patch"] == {}
+
+    @pytest.mark.asyncio
+    async def test_usage_out_param_is_populated(self, monkeypatch):
+        from app.services.ai import planner as planner_mod
+
+        client = AsyncMock()
+        client.messages.create = AsyncMock(
+            return_value=_FakeMessage(
+                json.dumps({"action": "answer", "reply": "ok"}),
+                input_tokens=321,
+                output_tokens=17,
+            )
+        )
+        monkeypatch.setattr(planner_mod, "_get_clients", lambda: (client, None, None))
+
+        usage: dict = {}
+        await refine_plan("x", [], {}, "plan", usage=usage)
+        assert usage == {"input_tokens": 321, "output_tokens": 17}
+
+    @pytest.mark.asyncio
+    async def test_empty_patch_on_modify_message_content(self, monkeypatch):
+        # blank/missing reply falls back to the canned fallback message
+        _patch_claude(monkeypatch, text=json.dumps({"action": "answer", "reply": ""}))
+        result = await refine_plan("x", [], {}, "plan")
+        assert result["reply"]  # non-empty — the fallback text, not ""

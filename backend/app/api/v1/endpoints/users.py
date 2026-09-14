@@ -75,7 +75,15 @@ async def delete_me(
     await revoke_session(x_soiree_session)
 
     logger.info(
-        "deleted user %s: %d plan(s), %d event(s)", user.id, len(plans), len(events)
+        "deleted user %s: %d plan(s), %d event(s)",
+        user.id,
+        len(plans),
+        len(events),
+        extra={
+            "user_id": user.id,
+            "plans_deleted": len(plans),
+            "events_deleted": len(events),
+        },
     )
     return {
         "deleted": True,
