@@ -197,11 +197,18 @@ customer id). So one Swiggy sign-in covers everything.
       session, bad state, opaque token), session create/resolve/revoke, and
       the `current_user` gate (401 paths). Rate-limiter precedence in
       `test_security.py`. Stream heartbeat in `test_plans_stream.py`.
-- [ ] `services/auth/oauth.py` PKCE + token-exchange still need a
-      mocked-httpx test; an httpx ASGITransport end-to-end for `/auth/*`
-      would need `aiosqlite` in requirements (no DB fixtures today).
-- [ ] `refine_plan` test with a mocked Anthropic client (patch classify →
-      assert patch sanitising + action routing)
+- [x] `tests/unit/test_oauth.py` — PKCE generation (S256 relationship,
+      urlsafe/no-padding, non-repeating), the authorize URL, Redis key
+      helpers, `is_token_expired` boundary math, and the two outbound
+      HTTP calls (`register_client`, `exchange_code_for_token`) mocked
+      with `respx` — pinned in requirements.txt since the start but
+      never actually used until now.
+- [x] `refine_plan` — `TestRefinePlan` in `test_planner.py`, Claude mocked
+      via monkeypatching `planner._get_clients`: modify-action patch
+      sanitising (clamped/dropped/truncated fields), answer-action
+      passthrough, modify-with-nothing-refinable falling back to answer,
+      a ```json fence, invalid JSON, an `anthropic.APIError`, and the
+      `usage` out-param.
 - [ ] `tests/integration/test_mcp.py` — a real-token contract test if a
       token is ever available in CI (likely skip-marked)
 - [ ] E2E (Playwright) against `demo.html`: form → picker → plan → refine

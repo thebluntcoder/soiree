@@ -7,6 +7,20 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Testing gaps closed (TODO §6)
+
+- **`tests/unit/test_oauth.py`** — PKCE generation, the authorize URL, Redis
+  key helpers, `is_token_expired` boundary math, and the two outbound HTTP
+  calls (`register_client`, `exchange_code_for_token`) mocked with `respx`
+  — a real dependency since early on that had never actually been used.
+- **`refine_plan` tests** (`TestRefinePlan` in `test_planner.py`) — Claude
+  mocked by monkeypatching `planner._get_clients`: modify-action patch
+  sanitising (clamped budget, dropped invalid `venue_mode`, truncated
+  notes, dropped unknown fields), answer passthrough, modify-with-nothing-
+  refinable falling back to "answer", a ` ```json ` fence, invalid JSON,
+  an `anthropic.APIError`, and the token-usage out-param.
+- 189 tests passing (was 167).
+
 ### Structured (JSON) logging (TODO §3)
 
 - **`core/logging.py`** — `configure_logging()`, called once at the top of
