@@ -307,8 +307,40 @@ async def get_plan_history(
     user: User = Depends(current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """The 20 most recent ready plans for the current user."""
-    return await list_user_plans(session=session, user_id=user.id)
+    """
+    The 20 most recent ready plans for the current user, as lightweight
+    summaries for a history list — event_type/location from the parent
+    Event (Plan itself doesn't carry them), plus the cost breakdown.
+    Full plan content (timeline, per-service writeups) is fetched on
+    demand via GET /plans/{plan_id} when the user opens one.
+    """
+    plans = await list_user_plans(session=session, user_id=user.id)
+
+    event_ids = {p.event_id for p in plans}
+    events_by_id: dict[str, Event] = {}
+    if event_ids:
+        result = await session.execute(select(Event).where(Event.id.in_(event_ids)))
+        events_by_id = {e.id: e for e in result.scalars().all()}
+
+    summaries = []
+    for plan in plans:
+        event = events_by_id.get(plan.event_id)
+        summaries.append(
+            {
+                "id": plan.id,
+                "event_id": plan.event_id,
+                "created_at": plan.created_at,
+                "event_type": event.event_type if event else None,
+                "location": event.location if event else None,
+                "guest_count": event.guest_count if event else None,
+                "dineout_cost": plan.dineout_cost,
+                "food_cost": plan.food_cost,
+                "instamart_cost": plan.instamart_cost,
+                "total_cost": plan.total_cost,
+                "total_savings": plan.total_savings,
+            }
+        )
+    return summaries
 
 
 @router.get("/{plan_id}", summary="Fetch a saved plan you own")

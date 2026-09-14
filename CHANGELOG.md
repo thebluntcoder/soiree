@@ -7,6 +7,27 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Plan history UI (TODO §5)
+
+- **`#historyBtn`** in the header (visible once logged in) opens a card list
+  of the user's last 20 ready plans — `GET /plans/history`, now enriched
+  with the parent Event's `event_type`, `location`, and `guest_count`
+  (joined in the endpoint; Plan itself doesn't carry them) alongside the
+  existing cost breakdown.
+- Clicking a card fetches `GET /plans/{id}` and renders it through the
+  same `renderPlan()` live generation already uses — `planFromRecord()`
+  adapts the raw DB row (JSON `timeline`, per-service text sections, int
+  costs) onto that shape. `brief` isn't persisted (it only ever existed
+  in the SSE stream), so history views render without that line.
+- Follow-up chat keeps working on a reopened plan — `/plans/refine` is
+  stateless, grounded in `plan_text`, so `planTextFromRecord()`
+  reconstructs `[MARKER]`-delimited text from the same adapted fields.
+  "Modify" (regenerate-with-patch) has no original form request to work
+  from on a historical plan, so it gracefully degrades to answer-only.
+- `backend/tests_e2e/test_plan_flow.py::test_plan_history` — generates a
+  plan, reopens it from History, and confirms both the content and
+  follow-up chat still work.
+
 ### Stale Next.js app deleted (TODO §5)
 
 - Removed `frontend/src/app/page.tsx`'s old event-form/plan-stream UI and

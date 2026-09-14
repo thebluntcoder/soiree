@@ -1633,6 +1633,7 @@ input[type=range]::-webkit-slider-thumb:hover {
         <span id="acctDot" style="width:6px;height:6px;border-radius:50%;background:var(--text3);transition:all 0.3s"></span>
         <span id="acctLabel">Sign in</span>
     </div>
+    <div id="historyBtn" onclick="showHistory()" style="display:none;align-items:center;gap:7px;padding:6px 16px;border:1px solid var(--border2);border-radius:20px;font-size:11px;letter-spacing:1px;color:var(--text2);cursor:pointer;transition:all 0.2s;margin-right:8px;font-family:'DM Sans',sans-serif;">🕓 &nbsp;History</div>
     <div id="deleteDataLink" onclick="handleDeleteMyData()" style="display:none;font-size:10px;color:var(--text3);cursor:pointer;margin:0 12px 0 4px;text-decoration:underline;text-underline-offset:2px;">Delete my data</div>
     <div id="swiggyAuthBtn" onclick="handleSwiggyAuth()" style="display:none;align-items:center;gap:7px;padding:6px 16px;border:1px solid var(--border2);border-radius:20px;font-size:11px;letter-spacing:1px;color:var(--text2);cursor:pointer;transition:all 0.2s;margin-right:8px;font-family:'DM Sans',sans-serif;">
         <span id="swiggyAuthDot" style="width:6px;height:6px;border-radius:50%;background:var(--amber);transition:all 0.3s"></span>
@@ -1875,6 +1876,21 @@ input[type=range]::-webkit-slider-thumb:hover {
       </button>
     </div>
 
+    <!-- Plan history -->
+    <div id="historyState" style="display:none;padding:40px 48px;width:100%;max-width:900px">
+      <div style="font-family:'Cormorant Garamond',serif;font-size:28px;font-style:italic;color:var(--text2);margin-bottom:8px">
+        Your past evenings
+      </div>
+      <p style="font-size:13px;color:var(--text3);margin-bottom:28px">
+        The last 20 plans Soirée has put together for you.
+      </p>
+      <div id="historyList"></div>
+      <button onclick="backToForm()"
+        style="display:block;margin-top:20px;background:none;border:none;color:var(--text3);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">
+        ← Back to form
+      </button>
+    </div>
+
     <!-- Generating state -->
     <div class="generating-state" id="genState">
       <div class="gen-rings">
@@ -1981,6 +1997,7 @@ function renderAccount() {
   const dot = document.getElementById('acctDot');
   const reconnect = document.getElementById('swiggyAuthBtn');
   const deleteLink = document.getElementById('deleteDataLink');
+  const historyBtn = document.getElementById('historyBtn');
   if (isLoggedIn()) {
     const u = S.soireeUser || {};
     label.textContent = u.name || (u.phone ? u.phone : 'Signed in');
@@ -1990,12 +2007,14 @@ function renderAccount() {
     // token actually lapsed — avoids a flash on load.
     reconnect.style.display = (S.swiggyChecked && !S.swiggyConnected) ? 'flex' : 'none';
     deleteLink.style.display = 'block';
+    historyBtn.style.display = 'flex';
   } else {
     label.textContent = 'Sign in';
     dot.style.background = 'var(--text3)';
     dot.style.boxShadow = 'none';
     reconnect.style.display = 'none';
     deleteLink.style.display = 'none';
+    historyBtn.style.display = 'none';
   }
 }
 
@@ -2616,6 +2635,7 @@ async function generate() {
   btn.innerHTML = '<span class="cta-spinner"></span> FINDING OPTIONS...';
 
   document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('historyState').style.display = 'none';
   document.getElementById('planContent').style.display = 'none';
   document.getElementById('planContent').innerHTML = '';
 
@@ -2669,12 +2689,134 @@ async function generate() {
 
 function backToForm() {
   document.getElementById('pickerState').style.display = 'none';
+  document.getElementById('historyState').style.display = 'none';
+  document.getElementById('planContent').style.display = 'none';
   document.getElementById('emptyState').style.display = 'flex';
   document.getElementById('pickerRefine').value = '';
   S.selectedDineout = null;
   S.selectedFood = null;
   S.pickerRefine = '';
   S.pickerOffset = 0;
+}
+
+// ── PLAN HISTORY ───────────────────────────────────────────────────
+const OCCASION_META = {
+  date: { emoji: '🌹', label: 'Date Night' },
+  friends: { emoji: '🥂', label: 'Friends' },
+  birthday: { emoji: '🎂', label: 'Birthday' },
+  corporate: { emoji: '💼', label: 'Corporate' },
+  house_party: { emoji: '🏠', label: 'House Party' },
+  family: { emoji: '👨‍👩‍👧', label: 'Family' },
+};
+
+async function showHistory() {
+  if (!requireLogin()) return;
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('pickerState').style.display = 'none';
+  document.getElementById('genState').style.display = 'none';
+  document.getElementById('planContent').style.display = 'none';
+  document.getElementById('historyState').style.display = 'block';
+
+  const list = document.getElementById('historyList');
+  list.innerHTML = `<p style="font-size:13px;color:var(--text3)">Loading…</p>`;
+  try {
+    const r = await fetch(`${API_BASE}/api/v1/plans/history`, { headers: authHeaders() });
+    if (r.status === 401) { handle401(); return; }
+    if (!r.ok) throw new Error(r.status);
+    renderHistoryList(await r.json());
+  } catch (e) {
+    list.innerHTML = `<p style="font-size:13px;color:var(--coral)">Couldn't load your history — try again in a moment.</p>`;
+  }
+}
+
+function renderHistoryList(plans) {
+  const list = document.getElementById('historyList');
+  if (!plans.length) {
+    list.innerHTML = `<p style="font-size:13px;color:var(--text3)">No plans yet — generate your first evening and it'll show up here.</p>`;
+    return;
+  }
+  list.innerHTML = plans.map(p => {
+    const meta = OCCASION_META[p.event_type] || { emoji: '✦', label: p.event_type || 'Evening' };
+    const date = new Date(p.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    const cost = p.total_cost ? `₹${p.total_cost.toLocaleString('en-IN')}` : '';
+    const guestLabel = p.guest_count ? `${p.guest_count} guest${p.guest_count === 1 ? '' : 's'}` : '';
+    return `<div class="svc-card" style="cursor:pointer;margin-bottom:10px" onclick="viewHistoryPlan('${p.id}')">
+      <div class="card-head">
+        <span class="card-title-text">${meta.emoji} ${meta.label}${p.location ? ' · ' + p.location : ''}</span>
+        ${cost ? `<span class="api-badge badge-d">${cost}</span>` : ''}
+      </div>
+      <div class="card-body" style="font-size:12px;color:var(--text3)">${[date, guestLabel].filter(Boolean).join(' · ')}</div>
+    </div>`;
+  }).join('');
+}
+
+// Maps GET /plans/{id}'s raw DB row onto the shape renderPlan() expects
+// (the same shape parse() builds from live SSE text). `brief` isn't
+// persisted (only ever existed in the SSE stream), so history views
+// skip that line — everything else round-trips.
+function planFromRecord(r) {
+  let timeline = [];
+  try { timeline = JSON.parse(r.timeline || '[]'); } catch (e) { timeline = []; }
+
+  const costRows = [];
+  if (r.dineout_cost) costRows.push(`Dineout: ₹${r.dineout_cost.toLocaleString('en-IN')}`);
+  if (r.food_cost) costRows.push(`Food Delivery: ₹${r.food_cost.toLocaleString('en-IN')}`);
+  if (r.instamart_cost) costRows.push(`Instamart: ₹${r.instamart_cost.toLocaleString('en-IN')}`);
+  const cost = costRows.length
+    ? costRows.join(' | ') + (r.total_cost ? `\nTOTAL: ₹${r.total_cost.toLocaleString('en-IN')}` : '')
+    : '';
+
+  return {
+    brief: '',
+    timeline,
+    dineout: r.dineout_options || '',
+    food: r.food_options || '',
+    instamart: r.instamart_cart || '',
+    health: r.health_insight || '',
+    offers: r.active_offers || '',
+    cost,
+    totalCost: r.total_cost ? `₹${r.total_cost.toLocaleString('en-IN')}` : '',
+    totalSavings: r.total_savings ? `₹${r.total_savings.toLocaleString('en-IN')}` : '',
+  };
+}
+
+// Reconstructs [MARKER]-delimited text matching what live generation
+// produces, so follow-up chat (/plans/refine, grounded in plan_text)
+// works the same way on a reopened historical plan.
+function planTextFromRecord(r) {
+  const plan = planFromRecord(r);
+  const parts = [];
+  if (plan.timeline.length) {
+    parts.push('[TIMELINE]\n' + plan.timeline.map(s => `${s.time} | ${s.emoji} | ${s.title} | ${s.detail}`).join('\n'));
+  }
+  if (plan.dineout) parts.push('[DINEOUT]\n' + plan.dineout);
+  if (plan.food) parts.push('[FOOD]\n' + plan.food);
+  if (plan.instamart) parts.push('[INSTAMART]\n' + plan.instamart);
+  if (plan.health) parts.push('[HEALTH]\n' + plan.health);
+  if (plan.offers) parts.push('[OFFERS]\n' + plan.offers);
+  if (plan.cost) parts.push('[COST]\n' + plan.cost);
+  return parts.join('\n');
+}
+
+async function viewHistoryPlan(id) {
+  try {
+    const r = await fetch(`${API_BASE}/api/v1/plans/${id}`, { headers: authHeaders() });
+    if (r.status === 401) { handle401(); return; }
+    if (!r.ok) throw new Error(r.status);
+    const record = await r.json();
+
+    document.getElementById('historyState').style.display = 'none';
+    S.addressUsed = null;
+    S.planText = planTextFromRecord(record);
+    // Not this plan's original form params — chat can still answer
+    // questions (stateless), but "modify" has nothing safe to regenerate
+    // from, so it gracefully falls back to answer-only (see sendChat()).
+    S.lastReq = null;
+    S.chatMsgs = [];
+    renderPlan(planFromRecord(record));
+  } catch (e) {
+    alert("Couldn't load that plan — try again in a moment.");
+  }
 }
 
 async function runGeneration(req, opts = {}) {

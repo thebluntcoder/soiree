@@ -45,6 +45,41 @@ def test_form_to_picker_to_plan_to_refine(authed_page):
     )
 
 
+def test_plan_history(authed_page):
+    """Generate a plan, then reopen it from the History screen."""
+    page, static_base = authed_page
+
+    page.goto(f"{static_base}/demo.html")
+    page.wait_for_selector("#loadScreen", state="hidden", timeout=10_000)
+
+    page.fill("#loc", "Lucknow")
+    page.click("#planCta")
+    page.wait_for_selector("#pickerState", state="visible", timeout=15_000)
+    page.click("#dcard-0")
+    page.click("#fcard-0")
+    page.click("#generateFromPicker")
+    page.wait_for_selector("#planContent", state="visible", timeout=20_000)
+    expect(page.locator("#planContent")).to_contain_text("Farzi Cafe")
+
+    page.click("#historyBtn")
+    page.wait_for_selector("#historyState", state="visible", timeout=10_000)
+    expect(page.locator("#historyList .svc-card").first).to_be_visible(timeout=10_000)
+    expect(page.locator("#historyList")).to_contain_text("2,350")
+
+    page.click("#historyList .svc-card >> nth=0")
+    page.wait_for_selector("#planContent", state="visible", timeout=10_000)
+    expect(page.locator("#planContent")).to_contain_text("Farzi Cafe")
+    expect(page.locator("#planContent")).to_contain_text("2,350")
+
+    # Reopened from history: chat still answers, grounded in the
+    # reconstructed plan text (see planTextFromRecord in demo.html).
+    page.fill("#chatInp", "Is Farzi Cafe a good pick for this?")
+    page.click("#chatSend")
+    expect(page.locator(".chat-bub.ai").last).to_contain_text(
+        "romantic pick", timeout=15_000
+    )
+
+
 def test_reload_keeps_the_session(authed_page):
     """A logged-in session survives a page reload (localStorage persists)."""
     page, static_base = authed_page
