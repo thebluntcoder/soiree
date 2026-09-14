@@ -107,9 +107,12 @@ customer id). So one Swiggy sign-in covers everything.
       (move pre-OAuth events/plans to the new row).
 - [ ] Run `scripts/relink_user.py` once in prod after the first Swiggy
       sign-in, to carry the old `Uttkarsh` account's events/plans over.
-- [ ] Silent-refresh idea — when `/auth/status` reports the token expiring
-      within ~a day, prompt "Reconnect Swiggy" proactively instead of on
-      the next failed MCP call.
+- [x] Silent-refresh idea — `checkSwiggyAuth()` now stores `expires_at`
+      from `/auth/status`; `swiggyExpiringSoon()` flags it within 24h, and
+      the reconnect chip shows proactively (label "Swiggy expiring soon")
+      instead of only once the token's actually lapsed. Clicking it opens
+      the login modal with a "expires soon" message instead of "lapsed"
+      when the token's still live. Covered by `tests_e2e/test_auth_flow.py`.
 - [x] Stale Next.js app (`frontend/src/`) deleted — see §5.
 
 ### Legal / privacy ✅ draft + mechanics

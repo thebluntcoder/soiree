@@ -7,6 +7,35 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.0.0] — 2026-09-14
+
+> First stable release. Login became Swiggy OAuth only (`demo-user-001`
+> and phone-OTP both removed), tokens are encrypted at rest, and the
+> picker/dineout-quality work from TODO §1–2 landed alongside it.
+> Rounded out with analytics, structured logging, an E2E suite against a
+> real live stack, the stale Next.js app's removal, a plan history
+> screen, and a proactive Swiggy-reconnect nudge — the app is live on
+> Railway/Vercel with real migrations, real auth, and test coverage
+> behind it. From here on, versioning follows strict semver: a breaking
+> API/schema change bumps major, a backward-compatible feature bumps
+> minor, a fix bumps patch.
+
+### Proactive Swiggy reconnect nudge (TODO §3)
+
+- `checkSwiggyAuth()` now stores `expires_at` from `GET /auth/status`
+  (already returned it, just wasn't kept) alongside `connected`.
+- New `swiggyExpiringSoon()` — true when connected but `expires_at` is
+  within 24h. The reconnect chip now shows proactively in that case too,
+  not just once the token's already lapsed, with a distinct label
+  ("Swiggy expiring soon" vs "Reconnect Swiggy") and a distinct login-
+  modal message ("expires soon" vs "lapsed") so the user isn't told their
+  connection already failed when it hasn't yet.
+- `backend/tests_e2e/test_auth_flow.py` (new) — seeds a Swiggy token
+  expiring within the hour via a new `expiring_swiggy_token` fixture and
+  confirms the nudge appears with the right label, plus a regression
+  check that the pre-existing never-connected case still shows the
+  original label.
+
 ### Plan history UI (TODO §5)
 
 - **`#historyBtn`** in the header (visible once logged in) opens a card list
