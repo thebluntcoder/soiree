@@ -26,6 +26,8 @@ htmlcov/
 # Node
 node_modules/
 .next/
+.next-verify/
+.build-check-*/
 out/
 *.tsbuildinfo
 
