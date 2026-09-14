@@ -7,6 +7,45 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Plan history UI (TODO §5)
+
+- **`#historyBtn`** in the header (visible once logged in) opens a card list
+  of the user's last 20 ready plans — `GET /plans/history`, now enriched
+  with the parent Event's `event_type`, `location`, and `guest_count`
+  (joined in the endpoint; Plan itself doesn't carry them) alongside the
+  existing cost breakdown.
+- Clicking a card fetches `GET /plans/{id}` and renders it through the
+  same `renderPlan()` live generation already uses — `planFromRecord()`
+  adapts the raw DB row (JSON `timeline`, per-service text sections, int
+  costs) onto that shape. `brief` isn't persisted (it only ever existed
+  in the SSE stream), so history views render without that line.
+- Follow-up chat keeps working on a reopened plan — `/plans/refine` is
+  stateless, grounded in `plan_text`, so `planTextFromRecord()`
+  reconstructs `[MARKER]`-delimited text from the same adapted fields.
+  "Modify" (regenerate-with-patch) has no original form request to work
+  from on a historical plan, so it gracefully degrades to answer-only.
+- `backend/tests_e2e/test_plan_flow.py::test_plan_history` — generates a
+  plan, reopens it from History, and confirms both the content and
+  follow-up chat still work.
+
+### Stale Next.js app deleted (TODO §5)
+
+- Removed `frontend/src/app/page.tsx`'s old event-form/plan-stream UI and
+  its whole supporting tree (`components/`, `hooks/`, `lib/`, `types/` —
+  `EventForm`, `GuestRoster`, `LocationPicker`, `PlanStream` and its six
+  card components, `ChatPanel`, `usePlanStream`, `useChatStream`, `api.ts`,
+  `parsePlan.ts`) — a second, unauthenticated frontend that 401ed on every
+  API call and was never deployed. `demo.html` was always the one real
+  client.
+- What's left under `frontend/src/` is a minimal shell: `layout.tsx`, a
+  trivial `page.tsx` that redirects `/` to `/demo.html`, and — unchanged —
+  `app/auth/callback/` + `app/callback/`, the Swiggy-whitelisted OAuth
+  redirect URIs. Those have to stay real Next.js routes; Vercel's build for
+  that project needs an app to build, and Swiggy needs somewhere to send
+  the user back to after login.
+- `next.config.js`'s `/api/*` rewrite (unused now that nothing left does
+  relative-path fetches) is gone too.
+
 ### Testing gaps closed (TODO §6)
 
 - **`backend/tests_e2e/`** — Playwright E2E suite against `demo.html`,

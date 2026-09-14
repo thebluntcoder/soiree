@@ -48,9 +48,12 @@ surrounding code's style rather than reaching for a formatter.
 ### Frontend
 
 `frontend/public/demo.html` is a single static file, no build step — open it directly or
-serve it as-is. It is the **only actively developed frontend**; `frontend/src/` is a Next.js
-app that predates the current auth model and 401s on every API call (kept for reference,
-not wired up). Don't add features there unless explicitly asked to revive it.
+serve it as-is. It is the **only frontend**. `frontend/src/` is a minimal Next.js app kept
+alive purely to host `/auth/callback` and `/callback` — the Swiggy-whitelisted OAuth redirect
+URIs (see "Auth" above) — at `https://soiree-blue.vercel.app`; Vercel's build for that
+project needs a real app to build, and Swiggy needs a real route to redirect to. Its old
+page/components/hooks/lib tree (a second, unauthenticated UI that 401ed on every call) was
+deleted — don't add real UI back under `frontend/src/`; that recreates the problem.
 
 ```bash
 cd frontend && npm run dev     # Next.js dev server (stale app only — demo.html needs no server)

@@ -110,8 +110,7 @@ customer id). So one Swiggy sign-in covers everything.
 - [ ] Silent-refresh idea — when `/auth/status` reports the token expiring
       within ~a day, prompt "Reconnect Swiggy" proactively instead of on
       the next failed MCP call.
-- [ ] Wire the stale Next.js app (`frontend/src/`) to the session, or drop
-      it — it 401s on every call (already flagged stale for OAuth).
+- [x] Stale Next.js app (`frontend/src/`) deleted — see §5.
 
 ### Legal / privacy ✅ draft + mechanics
 
@@ -180,15 +179,29 @@ customer id). So one Swiggy sign-in covers everything.
 
 ## 5. Frontend / UX
 
-- [ ] **Stale Next.js app (`frontend/src/`)** — decide: bring it to parity
-      with `demo.html` (OAuth, two-step picker, `/plans/refine`) or delete
-      it. It currently has none of those and isn't deployed
-- [ ] Plan history UI — `GET /plans/history` exists, no screen for it
+- [x] **Stale Next.js app (`frontend/src/`)** — deleted the old
+      page/components/hooks/lib tree (a second, unauthenticated UI). What's
+      left is a minimal shell that only hosts `/auth/callback` + `/callback`
+      — the Swiggy-whitelisted OAuth redirect URIs — since Vercel still
+      needs a real route there for `demo.html`'s login flow to complete.
+- [x] Plan history UI — `#historyBtn` in the header (shown once logged in)
+      opens a card list built from `GET /plans/history` (now enriched with
+      the parent Event's `event_type`/`location`/`guest_count`, since Plan
+      alone doesn't carry them); clicking a card fetches `GET /plans/{id}`
+      and renders it through the same `renderPlan()` live generation uses.
+      Follow-up chat still works on a reopened plan (stateless `/plans/
+      refine`, grounded in reconstructed `[MARKER]` text) — "modify"
+      gracefully degrades to answer-only since there's no original form
+      request to regenerate from. `brief` isn't persisted (SSE-only), so
+      history views skip that line. Covered by `tests_e2e::test_plan_history`.
 - [ ] Shareable plan card (+ guest RSVP — Phase 2)
 - [ ] `demo.html` cost-breakdown parsing is regex-based and tolerant but
       still model-format-dependent; a structured `[COST]` block from the
       model would be sturdier
-- [ ] Restaurant picker: show the resolved address / city at the top
+- [x] Restaurant picker: show the resolved address / city at the top —
+      already done as part of §1's "Surface the address used"
+      (`#pickerLocWarning` banner + the 📍 line above the rendered plan);
+      this was a stale duplicate of that item
 
 ## 6. Testing
 

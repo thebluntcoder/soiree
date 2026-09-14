@@ -171,11 +171,10 @@ The order agent (Phase 2) always surfaces a confirmation screen before calling a
 
 | Layer | Technology |
 |---|---|
-| Web | Next.js 14 (App Router) |
-| Styling | Tailwind CSS |
-| Fonts | Cormorant Garamond (display) + DM Sans (body) |
-| State | React hooks (useState, useRef, custom usePlanStream) |
-| Streaming | Native fetch + ReadableStream |
+| Web | `frontend/public/demo.html` — a single static file, no build step, no framework |
+| Styling | Inline CSS, Cormorant Garamond (display) + DM Sans (body) |
+| Streaming | Native fetch + ReadableStream, parsing SSE by hand |
+| OAuth callback shell | Next.js 14 (App Router), `frontend/src/` — hosts only the Swiggy redirect target Vercel needs to keep serving; not a second app |
 
 ### Infrastructure
 
@@ -259,38 +258,21 @@ soiree/
 │   ├── Dockerfile
 │   └── .env.example
 ├── frontend/
-│   ├── src/
-│   │   ├── app/
-│   │   │   ├── page.tsx                   # Home page (two-column layout)
-│   │   │   ├── layout.tsx                 # Root layout, metadata
-│   │   │   └── globals.css                # Base styles, font imports, CSS vars
-│   │   ├── types/
-│   │   │   └── index.ts                   # Shared TypeScript types (mirrors backend schemas)
-│   │   ├── lib/
-│   │   │   ├── api.ts                     # Fetch client, SSE stream consumer
-│   │   │   └── parsePlan.ts               # Section marker parser, timeline extractor
-│   └── hooks/
-│       ├── usePlanStream.ts           # React hook: SSE stream state management
-│       └── useChatStream.ts           # React hook: multi-turn chat state + history
-│   │   └── components/
-│   │       ├── event/
-│   │       │   ├── EventForm.tsx          # Main form (occasion, venue, budget, time)
-│   │       │   ├── GuestRoster.tsx        # Named guests + dietary tags, or headcount
-│   │       │   └── LocationPicker.tsx     # Text input + GPS detect (Nominatim)
-│           └── plan/
-│               ├── PlanStream.tsx         # Main plan renderer (idle/streaming/done/error)
-│               ├── TimelineCard.tsx       # Evening timeline with connector lines
-│               ├── DineoutCard.tsx        # Restaurant reservation card
-│               ├── FoodCard.tsx           # Food delivery options card
-│               ├── InstamartCard.tsx      # Grocery cart card
-│               ├── OffersCard.tsx         # Offers + total savings card
-│               ├── CostCard.tsx           # Cost breakdown + total card
-│               └── ChatPanel.tsx          # Follow-up chat UI with suggestion chips
+│   ├── public/
+│   │   ├── demo.html                      # The actual frontend — single static file, no build step
+│   │   └── privacy.html                   # Privacy policy (draft)
+│   ├── src/                               # Minimal Next.js shell — hosts the Swiggy OAuth
+│   │   │                                  # callback only; demo.html is not part of this app
+│   │   └── app/
+│   │       ├── page.tsx                   # / — redirects to /demo.html
+│   │       ├── layout.tsx                 # Root layout, metadata
+│   │       ├── globals.css                # Base styles, font imports, CSS vars
+│   │       ├── auth/callback/page.tsx     # Swiggy OAuth redirect target (whitelisted URI)
+│   │       └── callback/page.tsx          # Redirect shim → /auth/callback (local-dev URI)
 │   ├── package.json
-│   ├── next.config.js                     # API proxy rewrites to FastAPI
-│   ├── tailwind.config.js                 # Custom fonts, colors, animations
-│   ├── tsconfig.json                      # Path aliases (@/*)
-│   └── postcss.config.js
+│   ├── next.config.js
+│   ├── tailwind.config.js
+│   └── tsconfig.json                      # Path aliases (@/*)
 ├── docs/
 ├── scripts/
 │   └── test_api.sh                        # API smoke test
@@ -434,7 +416,7 @@ See `docs/mcp-integration.md`.
 ### Plan Generation Pipeline (step by step)
 
 ```
-1. User fills EventForm in browser
+1. User fills the form in demo.html
    └── Selects: occasion, venue mode, location, guests, budget, time, dietary, health
 
 2. Frontend calls POST /api/v1/plans/generate
@@ -472,14 +454,15 @@ See `docs/mcp-integration.md`.
    └── collect-then-send: full response collected, newlines encoded as ⏎,
        sent as single SSE message to avoid marker fragmentation
 
-10. Frontend api.ts receives SSE stream via ReadableStream
+10. demo.html's fetch/ReadableStream loop receives the SSE stream
     └── Buffers on \n\n boundaries, decodes ⏎ → \n
 
-11. parsePlan.ts extracts sections using [MARKER] regex
-    └── Returns ParsedPlan: {brief, timeline[], dineout, food, instamart, health, offers, cost}
+11. demo.html's own [MARKER] regex parser extracts sections
+    └── Same section shape the backend's parse_plan.py returns: brief, timeline[],
+        dineout, food, instamart, health, offers, cost
 
-12. usePlanStream hook updates React state on each chunk
-    └── Components re-render progressively as sections arrive
+12. demo.html updates the DOM directly on each chunk (no framework/virtual DOM)
+    └── Sections render progressively as they arrive
 
 13. After [DONE] signal, backend parse_plan.py parses same text server-side
     └── Saves to plans table: status=ready, total_cost, total_savings, all sections
@@ -759,6 +742,9 @@ Bug appears
 - [x] Structured (JSON) logging — every `app.*` log call, uvicorn's own logs untouched
 - [x] CI — pytest + migration round-trip, 189 tests
 - [x] E2E (Playwright) against `demo.html` — live FastAPI + Postgres + Redis, real browser
+- [x] Stale Next.js app deleted — `frontend/src/` is now a minimal shell hosting only the
+      Swiggy OAuth callback route Vercel already has whitelisted; `demo.html` was always the
+      real frontend
 
 ### Next
 
@@ -768,7 +754,6 @@ See [TODO.md](TODO.md) for the full prioritised list.
 - [ ] `approve_clicked` analytics event once an approve action exists (Phase 2)
 - [ ] `create_address` flow for cities the user hasn't saved
 - [ ] Phase 2 — agentic ordering (`book_table` / `place_food_order` / `checkout`, confirmation + undo)
-- [ ] Decide the fate of the stale `frontend/src/` Next.js app (now also unauthenticated)
 - [ ] Phase 3 — group consensus, Slack bot, corporate billing
 
 ---
