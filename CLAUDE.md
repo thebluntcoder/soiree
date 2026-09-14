@@ -26,6 +26,10 @@ cd backend && pytest -q                                  # everything
 cd backend && pytest tests/unit/test_auth.py -q           # one file
 cd backend && pytest tests/unit/test_auth.py::TestAuthCallback::test_new_user_gets_session -q  # one test
 
+# E2E (Playwright, live local stack) — NOT part of `pytest -q`, see tests_e2e/conftest.py
+cd backend && pip install -r requirements-e2e.txt && playwright install chromium
+cd backend && pytest tests_e2e -q
+
 # migrations (Alembic is the only schema authority — app startup does NOT create_all)
 cd backend && alembic upgrade head
 cd backend && alembic revision --autogenerate -m "description"
@@ -154,3 +158,20 @@ Redis-like behavior build a small dict-backed fake class inline (see `test_auth.
 `test_security.py`) and `monkeypatch` the module's `get_redis`. Endpoint functions are called
 directly with stub `db`/`session` objects rather than going through FastAPI's test client.
 Follow this pattern for new tests rather than introducing a DB fixture.
+
+### E2E tests are the one exception: a genuinely live stack, in `tests_e2e/`
+
+`backend/tests_e2e/` (Playwright, `pip install -r requirements-e2e.txt`) is deliberately outside
+this fake-everything convention and outside `pytest -q` (it lives outside `pytest.ini`'s
+`testpaths = tests`, so run it explicitly with `pytest tests_e2e -q`). It runs the real FastAPI
+app in a background thread against a real (throwaway) Postgres + Redis, driven by a real
+Chromium browser through `demo.html` — only Claude is mocked, by monkeypatching
+`planner._get_clients` (see `conftest.py`'s `_mock_claude`). Two fixed ports are load-bearing:
+the live server binds **8000** because `demo.html` hardcodes `API_BASE` to it with no env
+override, and the static file server binds **3000** because that's the only origin in the
+default `ALLOWED_ORIGINS` — both fixtures fail fast with a clear error if something else (e.g.
+your own `uvicorn --reload`) already holds the port. The session-seeding fixture uses its own
+throwaway `create_async_engine`/`aioredis.from_url` connections rather than the app's
+`AsyncSessionLocal`/`get_redis()` singletons — those bind to whichever asyncio event loop first
+touches them, and reusing them from a fixture's own throwaway loop poisons them for the live
+server's subsequent requests. See `conftest.py`'s module docstring for full preconditions.

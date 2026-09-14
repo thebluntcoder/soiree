@@ -9,6 +9,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Testing gaps closed (TODO §6)
 
+- **`backend/tests_e2e/`** — Playwright E2E suite against `demo.html`,
+  driving a genuinely live local stack: real FastAPI (in-process, background
+  thread), real Postgres, real Redis, a real Chromium browser. Only Claude
+  is mocked (`conftest.py`'s `_mock_claude`). Covers the golden path — form
+  → restaurant picker → plan generation → refine chat — plus a reload-keeps-
+  session check. Deliberately outside `pytest -q` (separate
+  `requirements-e2e.txt`, needs `playwright install chromium`); run with
+  `pytest tests_e2e -q` after the preconditions in the module docstring
+  (throwaway `soiree_e2e` DB, migrated).
 - **`tests/unit/test_oauth.py`** — PKCE generation, the authorize URL, Redis
   key helpers, `is_token_expired` boundary math, and the two outbound HTTP
   calls (`register_client`, `exchange_code_for_token`) mocked with `respx`

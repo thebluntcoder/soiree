@@ -211,7 +211,11 @@ customer id). So one Swiggy sign-in covers everything.
       `usage` out-param.
 - [ ] `tests/integration/test_mcp.py` — a real-token contract test if a
       token is ever available in CI (likely skip-marked)
-- [ ] E2E (Playwright) against `demo.html`: form → picker → plan → refine
+- [x] E2E (Playwright) against `demo.html`: form → picker → plan → refine —
+      `backend/tests_e2e/`, a live local stack (real FastAPI + Postgres +
+      Redis, real Chromium browser; only Claude is mocked). Not part of the
+      default `pytest -q`; run explicitly with `pytest tests_e2e -q` after
+      the preconditions in `tests_e2e/conftest.py`'s module docstring.
 
 ## 7. Phase 3 — Scale
 
