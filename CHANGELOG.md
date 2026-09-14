@@ -7,6 +7,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-09-14
+
+> Auth rewrite + hardening release. Login became Swiggy OAuth only
+> (`demo-user-001` and phone-OTP both removed), tokens are encrypted at
+> rest, and the picker/dineout-quality work from TODO §1–2 landed
+> alongside it. Rounded out with analytics, structured logging, an E2E
+> suite against a real live stack, the stale Next.js app's removal, a
+> plan history screen, and a proactive Swiggy-reconnect nudge.
+
 ### Proactive Swiggy reconnect nudge (TODO §3)
 
 - `checkSwiggyAuth()` now stores `expires_at` from `GET /auth/status`
