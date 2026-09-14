@@ -7,6 +7,24 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Structured (JSON) logging (TODO §3)
+
+- **`core/logging.py`** — `configure_logging()`, called once at the top of
+  `main.py`, routes every `app.*` logger through a `JSONFormatter`: one
+  JSON object per line (`timestamp`, `level`, `logger`, `message`, plus
+  anything a call site passed via `extra={...}`), instead of free-text.
+  Uvicorn's own access/error logs are untouched — they're separate loggers
+  with `propagate=False`, so this only affects the app's own log calls.
+- The five existing log calls that name an identifiable entity now pass
+  `extra=` too — `users.py` (deleted user id + counts), `mcp/base.py`
+  (MCP tool name + status code), `mcp/orchestrator.py` (resolved address
+  ids), `services/ai/planner.py` (restaurant id on enrichment failure),
+  `services/analytics.py` (event name on a PostHog capture failure).
+- `tests/unit/test_logging.py` — formatter output shape, extra-field
+  passthrough, exception formatting, single-line-per-record (a stray
+  newline in a field would break line-based log parsing), and that
+  `configure_logging()` actually wires the root logger.
+
 ### Analytics + Anthropic cost tracking (TODO §3)
 
 - **`services/analytics.py`** — thin PostHog wrapper, entirely behind

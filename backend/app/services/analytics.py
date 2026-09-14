@@ -63,7 +63,9 @@ def capture(distinct_id: str | None, event: str, properties: dict[str, Any] | No
     try:
         client.capture(event=event, distinct_id=distinct_id, properties=properties or {})
     except Exception as e:  # noqa: BLE001
-        logger.warning("posthog capture(%s) failed: %s", event, e)
+        logger.warning(
+            "posthog capture(%s) failed: %s", event, e, extra={"posthog_event": event}
+        )
 
 
 def alias(previous_id: str | None, distinct_id: str | None) -> None:

@@ -138,6 +138,15 @@ failures are normalized to `PermissionError` in `base.py` and mapped to specific
 actions in `docs/mcp-integration.md` (401 → re-run OAuth, 419 → full re-auth, 403 → scope
 error) — check that doc before changing MCP error handling.
 
+### Logging is JSON, wired once at the top of `main.py`
+
+`core/logging.py::configure_logging()` routes every `app.*` logger through a JSON formatter
+(one object per line: timestamp/level/logger/message, plus anything passed via
+`extra={...}`) — call it before adding a new top-level log call site expecting plain text.
+It does not touch uvicorn's own access/error logs (separate loggers, `propagate=False`).
+Pass `extra={"user_id": ..., "restaurant_id": ...}` etc. on any log call that names a
+specific entity so it's filterable later, rather than only interpolating it into the message.
+
 ### Tests use hand-written fakes, not fixtures or a real DB/Redis
 
 There's no `aiosqlite`/database fixture and no `fakeredis` dependency. Tests that need

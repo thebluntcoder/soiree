@@ -116,6 +116,7 @@ class BaseMCPClient:
                 tool_name,
                 response.status_code,
                 response.text[:500],
+                extra={"tool_name": tool_name, "status_code": response.status_code},
             )
             response.raise_for_status()
 

@@ -152,7 +152,14 @@ customer id). So one Swiggy sign-in covers everything.
       from the raw token counts against current rates.
 - [ ] `approve_clicked` — no "approve" action exists in the product yet
       (ordering is Phase 2); wire this when that button ships.
-- [ ] Structured logging (JSON) instead of `logger.info` free-text
+- [x] Structured (JSON) logging — `core/logging.py::configure_logging()`
+      wires every `app.*` logger to one JSON line per record
+      (timestamp/level/logger/message + any `extra={...}` fields), wired
+      in at the top of `main.py`. Doesn't touch uvicorn's own
+      access/error logs (separate loggers, `propagate=False`). The
+      handful of existing `logger.warning`/`logger.info` call sites with
+      an identifiable entity (user id, MCP tool name, restaurant id,
+      resolved address ids) now pass `extra=` too.
 
 ## 4. Phase 2 — Approve & Order
 
