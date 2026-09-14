@@ -59,11 +59,13 @@ const API_BASE = location.hostname === 'localhost'
   : 'https://soiree-production.up.railway.app';
 ```
 
-The Next.js app under `frontend/src/` needs `NEXT_PUBLIC_API_URL` and proxies
-`/api/*` to it via `next.config.js` rewrites. **It is not wired to the
-session** and 401s on every API call — `demo.html` is the only working
-client. The shared `/auth/callback` route (used by both) POSTs `{code,
-state}` and stores the returned `soiree_session` in `localStorage`.
+The Next.js app under `frontend/src/` is **not a second client** — its old
+page/components/hooks/lib tree (which 401ed on every call) was deleted. It
+exists only to host `/auth/callback` and `/callback`, the Swiggy-whitelisted
+OAuth redirect URIs, on the same Vercel domain as `demo.html`. That route
+POSTs `{code, state}` to the backend, stores the returned `soiree_session` in
+`localStorage`, then navigates back to whatever page started the flow
+(`demo.html`, via `localStorage.soiree_return`).
 
 ## Database migrations after this release
 

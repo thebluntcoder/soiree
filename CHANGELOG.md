@@ -7,6 +7,24 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Stale Next.js app deleted (TODO §5)
+
+- Removed `frontend/src/app/page.tsx`'s old event-form/plan-stream UI and
+  its whole supporting tree (`components/`, `hooks/`, `lib/`, `types/` —
+  `EventForm`, `GuestRoster`, `LocationPicker`, `PlanStream` and its six
+  card components, `ChatPanel`, `usePlanStream`, `useChatStream`, `api.ts`,
+  `parsePlan.ts`) — a second, unauthenticated frontend that 401ed on every
+  API call and was never deployed. `demo.html` was always the one real
+  client.
+- What's left under `frontend/src/` is a minimal shell: `layout.tsx`, a
+  trivial `page.tsx` that redirects `/` to `/demo.html`, and — unchanged —
+  `app/auth/callback/` + `app/callback/`, the Swiggy-whitelisted OAuth
+  redirect URIs. Those have to stay real Next.js routes; Vercel's build for
+  that project needs an app to build, and Swiggy needs somewhere to send
+  the user back to after login.
+- `next.config.js`'s `/api/*` rewrite (unused now that nothing left does
+  relative-path fetches) is gone too.
+
 ### Testing gaps closed (TODO §6)
 
 - **`backend/tests_e2e/`** — Playwright E2E suite against `demo.html`,

@@ -110,8 +110,7 @@ customer id). So one Swiggy sign-in covers everything.
 - [ ] Silent-refresh idea — when `/auth/status` reports the token expiring
       within ~a day, prompt "Reconnect Swiggy" proactively instead of on
       the next failed MCP call.
-- [ ] Wire the stale Next.js app (`frontend/src/`) to the session, or drop
-      it — it 401s on every call (already flagged stale for OAuth).
+- [x] Stale Next.js app (`frontend/src/`) deleted — see §5.
 
 ### Legal / privacy ✅ draft + mechanics
 
@@ -180,9 +179,11 @@ customer id). So one Swiggy sign-in covers everything.
 
 ## 5. Frontend / UX
 
-- [ ] **Stale Next.js app (`frontend/src/`)** — decide: bring it to parity
-      with `demo.html` (OAuth, two-step picker, `/plans/refine`) or delete
-      it. It currently has none of those and isn't deployed
+- [x] **Stale Next.js app (`frontend/src/`)** — deleted the old
+      page/components/hooks/lib tree (a second, unauthenticated UI). What's
+      left is a minimal shell that only hosts `/auth/callback` + `/callback`
+      — the Swiggy-whitelisted OAuth redirect URIs — since Vercel still
+      needs a real route there for `demo.html`'s login flow to complete.
 - [ ] Plan history UI — `GET /plans/history` exists, no screen for it
 - [ ] Shareable plan card (+ guest RSVP — Phase 2)
 - [ ] `demo.html` cost-breakdown parsing is regex-based and tolerant but
