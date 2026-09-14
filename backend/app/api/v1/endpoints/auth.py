@@ -67,8 +67,8 @@ from app.services.auth.session import create_session, revoke_session
 router = APIRouter()
 
 CLIENT_ID_KEY = "swiggy_oauth_client_id"
-PKCE_TTL = 120           # Swiggy authorization code expires in 120s
-TOKEN_TTL = 432000       # 5 days — fallback if the token response omits expires_in
+PKCE_TTL = 120  # Swiggy authorization code expires in 120s
+TOKEN_TTL = 432000  # 5 days — fallback if the token response omits expires_in
 
 _START_LIMIT = Depends(rate_limit("auth_start", limit=30, window_seconds=3600))
 _CALLBACK_LIMIT = Depends(rate_limit("auth_callback", limit=30, window_seconds=3600))
@@ -94,8 +94,11 @@ async def get_or_register_client_id() -> str:
         )
 
 
-@router.get("/start", summary="Begin sign-in — returns the Swiggy authorize URL",
-            dependencies=[_START_LIMIT])
+@router.get(
+    "/start",
+    summary="Begin sign-in — returns the Swiggy authorize URL",
+    dependencies=[_START_LIMIT],
+)
 async def auth_start(
     consent: bool = Query(
         False, description="Must be true — the user accepted the privacy policy"
@@ -155,9 +158,12 @@ class CallbackRequest(BaseModel):
     state: str
 
 
-@router.post("/callback", response_model=AuthResponse,
-             summary="Finish sign-in — exchange code, create session",
-             dependencies=[_CALLBACK_LIMIT])
+@router.post(
+    "/callback",
+    response_model=AuthResponse,
+    summary="Finish sign-in — exchange code, create session",
+    dependencies=[_CALLBACK_LIMIT],
+)
 async def auth_callback(
     request: CallbackRequest, db: AsyncSession = Depends(get_session)
 ):
@@ -166,7 +172,9 @@ async def auth_callback(
 
     pkce_data_raw = await redis.get(pkce_redis_key(request.state))
     if not pkce_data_raw:
-        analytics.capture(request.state, "swiggy_auth_failed", {"reason": "invalid_state"})
+        analytics.capture(
+            request.state, "swiggy_auth_failed", {"reason": "invalid_state"}
+        )
         raise HTTPException(
             status_code=400,
             detail="Invalid or expired state. Please restart sign-in.",
@@ -199,9 +207,7 @@ async def auth_callback(
             detail=f"Couldn't read your Swiggy identity from the token ({e}).",
         )
 
-    result = await db.execute(
-        select(User).where(User.swiggy_sub == identity["sub"])
-    )
+    result = await db.execute(select(User).where(User.swiggy_sub == identity["sub"]))
     user = result.scalar_one_or_none()
     is_new = user is None
     if is_new:
