@@ -310,3 +310,55 @@ def authed_page(context, soiree_session, live_server, static_server):
     )
     page = context.new_page()
     yield page, static_server
+
+
+@pytest.fixture
+def expiring_swiggy_token(soiree_session):
+    """
+    Seeds a Swiggy MCP token for the e2e-test user that's connected but
+    expires within the hour — for testing the proactive "reconnect soon"
+    nudge (demo.html's swiggyExpiringSoon(), fed by GET /auth/status's
+    expires_at). Every other E2E test deliberately has NO Swiggy token
+    (see test_plan_flow.py's docstring — that's what exercises the mock
+    MCP data path), so this is opt-in via its own fixture rather than
+    something soiree_session does by default.
+
+    Depends on soiree_session (not authed_page) so it runs after the
+    e2e-test user already exists, and can look them up by swiggy_sub.
+    """
+    from app.core.crypto import encrypt
+
+    async def _seed():
+        engine = create_async_engine(os.environ["DATABASE_URL"])
+        session_factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        async with session_factory() as session:
+            result = await session.execute(
+                select(User).where(User.swiggy_sub == "e2e-test-sub")
+            )
+            user_id = result.scalar_one().id
+        await engine.dispose()
+
+        redis = aioredis.from_url(os.environ["REDIS_URL"], decode_responses=True)
+        await redis.setex(
+            f"swiggy_token:{user_id}",
+            3600,
+            json.dumps(
+                {
+                    "access_token": encrypt("fake-e2e-access-token"),
+                    "expires_at": time.time() + 3600,  # within the 24h nudge window
+                    "scope": "mcp:tools",
+                }
+            ),
+        )
+        await redis.aclose()
+        return user_id
+
+    user_id = _run_async(_seed())
+    yield user_id
+
+    async def _cleanup():
+        redis = aioredis.from_url(os.environ["REDIS_URL"], decode_responses=True)
+        await redis.delete(f"swiggy_token:{user_id}")
+        await redis.aclose()
+
+    _run_async(_cleanup())

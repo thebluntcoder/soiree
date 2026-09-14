@@ -1955,6 +1955,7 @@ const S = {
   soireeSession: localStorage.getItem('soiree_session') || null,
   soireeUser: (() => { try { return JSON.parse(localStorage.getItem('soiree_user') || 'null'); } catch { return null; } })(),
   swiggyConnected: false,
+  swiggyExpiresAt: null,
   alcohol: 'any',
   hour: 20,
   budget: 3000,
@@ -2003,9 +2004,13 @@ function renderAccount() {
     label.textContent = u.name || (u.phone ? u.phone : 'Signed in');
     dot.style.background = 'var(--green2)';
     dot.style.boxShadow = '0 0 6px var(--green2)';
-    // "Reconnect Swiggy" only shows once /auth/status has confirmed the
-    // token actually lapsed — avoids a flash on load.
-    reconnect.style.display = (S.swiggyChecked && !S.swiggyConnected) ? 'flex' : 'none';
+    // "Reconnect Swiggy" shows once /auth/status has confirmed the token
+    // actually lapsed, OR proactively when it's expiring within ~a day —
+    // avoids a flash on load, and avoids waiting for a failed MCP call.
+    const expiringSoon = swiggyExpiringSoon();
+    reconnect.style.display = (S.swiggyChecked && (!S.swiggyConnected || expiringSoon)) ? 'flex' : 'none';
+    document.getElementById('swiggyAuthLabel').textContent =
+      expiringSoon ? 'Swiggy expiring soon' : 'Reconnect Swiggy';
     deleteLink.style.display = 'block';
     historyBtn.style.display = 'flex';
   } else {
@@ -3313,16 +3318,28 @@ async function checkSwiggyAuth() {
     if (res.status === 401) { handle401(); return; }
     const data = await res.json();
     S.swiggyConnected = !!data.connected;
+    S.swiggyExpiresAt = data.expires_at || null;
     S.swiggyChecked = true;
     renderAccount();
   } catch(e) {}
+}
+
+// Token is connected but expiring within ~a day — nudge the user to
+// reconnect before the next MCP call fails, rather than only reacting
+// to that failure after the fact.
+function swiggyExpiringSoon() {
+  return S.swiggyConnected && S.swiggyExpiresAt
+    && (S.swiggyExpiresAt - Date.now() / 1000) < 24 * 3600;
 }
 
 // The "Reconnect Swiggy" chip — same OAuth flow as first sign-in, but the
 // user already accepted the privacy policy once, so pre-check that box
 // instead of making them re-tick it every time a 5-day token lapses.
 function handleSwiggyAuth() {
-  openLogin('Your Swiggy connection lapsed — sign in again to keep planning.');
+  const reason = S.swiggyConnected
+    ? 'Your Swiggy connection expires soon — reconnect now to keep planning without interruption.'
+    : 'Your Swiggy connection lapsed — sign in again to keep planning.';
+  openLogin(reason);
   const consent = document.getElementById('loginConsent');
   if (consent) { consent.checked = true; updateLoginBtn(); }
 }
