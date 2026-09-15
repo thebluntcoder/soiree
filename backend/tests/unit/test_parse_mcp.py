@@ -7,6 +7,7 @@ Food packs a JSON blob in its text field; Dineout sends numbered text lines.
 
 from app.services.mcp.parse_mcp import (
     mcp_text,
+    parse_available_slots,
     parse_restaurant_details,
     parse_restaurant_list,
 )
@@ -197,3 +198,48 @@ class TestRestaurantDetails:
         assert parse_restaurant_details(_env("just some prose with no colon fields")) is None
         assert parse_restaurant_details(_env("Foo: bar\nBaz: qux")) is None  # no "Restaurant:"
         assert parse_restaurant_list(_env('{"total":0,"restaurants":[]}')) is None
+
+
+# get_available_slots' real text format is UNCONFIRMED (no live token to test
+# against — see parse_mcp.py's comment above parse_available_slots). These
+# fixtures are best-guess shapes following Dineout's established
+# "one line per item" convention, tolerant of either.
+SLOTS_STATUS_MARKED = _env(
+    "7:00 PM - Available\n"
+    "7:30 PM - Booked\n"
+    "8:00 PM - Available\n"
+    "8:30 PM - Sold out\n"
+    "9:00 PM - Available"
+)
+SLOTS_ONLY_AVAILABLE_LISTED = _env(
+    "Available slots for 2026-05-10:\n"
+    "1. 7:30 PM (ID: slot_1930)\n"
+    "2. 8:00 PM (ID: slot_2000)\n"
+    "3. 8:30 PM (ID: slot_2030)"
+)
+
+
+class TestAvailableSlots:
+    def test_status_marked_filters_unavailable(self):
+        slots = parse_available_slots(SLOTS_STATUS_MARKED)
+        assert [s["time"] for s in slots] == ["7:00 PM", "8:00 PM", "9:00 PM"]
+        assert all(s["available"] for s in slots)
+
+    def test_only_available_listed_no_status_word(self):
+        slots = parse_available_slots(SLOTS_ONLY_AVAILABLE_LISTED)
+        assert [s["time"] for s in slots] == ["7:30 PM", "8:00 PM", "8:30 PM"]
+
+    def test_slot_id_captured_when_present(self):
+        slots = parse_available_slots(SLOTS_ONLY_AVAILABLE_LISTED)
+        assert slots[0]["slotId"] == "slot_1930"
+
+    def test_slot_id_absent_is_fine(self):
+        slots = parse_available_slots(SLOTS_STATUS_MARKED)
+        assert "slotId" not in slots[0]
+
+    def test_no_times_is_none(self):
+        assert parse_available_slots(_env("No availability for this restaurant today.")) is None
+        assert parse_available_slots({"data": {}}) is None
+
+    def test_all_unavailable_is_none(self):
+        assert parse_available_slots(_env("7:00 PM - Booked\n7:30 PM - Full")) is None

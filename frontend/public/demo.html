@@ -2652,7 +2652,7 @@ async function generate() {
     lng: S.lng || null,
     start_hour: S.hour,
     budget: S.budget,
-    guest_count: S.guestMode === 'named' ? Math.max(S.guests.length, 1) : S.guestCount,
+    guest_count: resolvedGuestCount(),
     guests: S.guestMode === 'named' ? S.guests : [],
     dietary_tags: S.dietary,
     health_focus: S.health,
@@ -3264,15 +3264,21 @@ function selectDineout(i) {
   loadDineoutDetail();
 }
 
+function resolvedGuestCount() {
+  return S.guestMode === 'named' ? Math.max(S.guests.length, 1) : S.guestCount;
+}
+
 // On select, pull the restaurant's full details (cuisine, cost, amenities,
-// offers) — the Dineout list only has name + rating + locality.
+// offers, today's real available_slots) — the Dineout list only has
+// name + rating + locality.
 async function loadDineoutDetail() {
   const r = S.selectedDineout;
   if (!r?.id || !S.swiggyConnected || r._detail) return;
   const c = S.searchData.dineout_coordinates || {};
-  const q = c.lat != null ? `?lat=${c.lat}&lng=${c.lng}` : '';
+  const params = new URLSearchParams({ guest_count: String(resolvedGuestCount()) });
+  if (c.lat != null) { params.set('lat', c.lat); params.set('lng', c.lng); }
   try {
-    const res = await fetch(`${API_BASE}/api/v1/search/restaurant/${encodeURIComponent(r.id)}${q}`,
+    const res = await fetch(`${API_BASE}/api/v1/search/restaurant/${encodeURIComponent(r.id)}?${params}`,
       { headers: authHeaders() });
     const d = await res.json();
     r._detail = true;
@@ -3283,6 +3289,7 @@ async function loadDineoutDetail() {
       r.amenities = d.amenities || [];
       r.timings = d.timings;
       r.address = d.address;
+      if (d.available_slots?.length) r.available_slots = d.available_slots;
       renderPickerCards();
     }
   } catch(e) {}

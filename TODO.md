@@ -62,9 +62,20 @@ records what's next. Roughly ordered by priority within each section.
       merges it into `selected_dineout` before the prompt (so `[DINEOUT]`
       gets amenities / real offers / timings); `GET /search/restaurant/{id}`
       + the picker expands a card with the same data when you select it.
-- [ ] Slots in the picker/plan — `get_available_slots(id, date, lat, lng)`.
-      Deferred to Phase 2 (booking): the plan says a time, the booking flow
-      resolves it to a real `slotId`.
+- [x] Slots in the picker/plan — `get_available_slots` was already written
+      but dead code (never wired up, and missing `access_token` so it would
+      always have mocked even for a real user). `_enrich_dineout` now calls
+      it for today (IST) alongside `get_restaurant_details`, independently
+      best-effort; `GET /search/restaurant/{id}` does the same for the
+      picker card expand. Both just feed the existing `available_slots`
+      field — `build_user_prompt`'s "Slots:" line and demo.html's
+      `dcardHTML` already consumed it, they just never got real data.
+      `parse_available_slots` (`parse_mcp.py`) is **unconfirmed** against
+      live output (no Swiggy token to test against this round) — tolerant
+      of a couple of plausible text conventions, and `GET /search/_debug`
+      now also captures the raw text for tuning once a token's available.
+      `slotId` capture is opportunistic, not required — Phase 2's
+      `book_table` still needs a real one to book against.
 
 ## 3. Production readiness (before any public launch)
 

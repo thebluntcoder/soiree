@@ -185,6 +185,7 @@ class DineoutMCPClient(BaseMCPClient):
         restaurant_id: str,
         date: str,
         guest_count: int,
+        access_token: str | None = None,
     ) -> dict[str, Any]:
         """
         Fetch real-time slot availability for a specific restaurant.
@@ -210,6 +211,7 @@ class DineoutMCPClient(BaseMCPClient):
                 "date": date,
                 "guestCount": guest_count,
             },
+            access_token=access_token,
         )
 
     async def get_restaurant_details(

@@ -23,6 +23,8 @@ It returns structured restaurant cards ready to render in the UI.
 
 import asyncio
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -35,6 +37,7 @@ from app.services import analytics
 from app.services.mcp.orchestrator import MCPOrchestrator
 from app.services.mcp.parse_mcp import (
     mcp_text,
+    parse_available_slots,
     parse_restaurant_details,
     parse_restaurant_list,
 )
@@ -235,23 +238,39 @@ async def restaurant_details(
     restaurant_id: str,
     lat: float | None = None,
     lng: float | None = None,
+    guest_count: int = 2,
     user: User = Depends(current_user),
 ):
     """
     get_restaurant_details for one Dineout restaurant — cuisine, cost,
-    amenities, timings, offers. Used by the picker to expand a card the
-    user is considering. Returns {} when Swiggy isn't connected.
+    amenities, timings, offers — plus today's real available_slots via
+    get_available_slots. Used by the picker to expand a card the user is
+    considering. Returns {} when Swiggy isn't connected.
     """
     access_token = await get_access_token(user.id)
     if not access_token:
         return {}
+    orch = get_orchestrator()
     try:
-        raw = await get_orchestrator().dineout.get_restaurant_details(
+        raw = await orch.dineout.get_restaurant_details(
             restaurant_id, lat=lat, lng=lng, access_token=access_token
         )
+        details = parse_restaurant_details(raw) or {}
     except Exception:  # noqa: BLE001
-        return {}
-    return parse_restaurant_details(raw) or {}
+        details = {}
+
+    try:
+        today = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d")
+        raw_slots = await orch.dineout.get_available_slots(
+            restaurant_id, date=today, guest_count=guest_count,
+            access_token=access_token,
+        )
+        if slots := parse_available_slots(raw_slots):
+            details["available_slots"] = slots
+    except Exception:  # noqa: BLE001 — slots are a nice-to-have here
+        pass
+
+    return details
 
 
 @router.get("/_debug", summary="Raw Swiggy MCP text responses (needs Swiggy connected)")
@@ -287,9 +306,13 @@ async def search_debug(user: User = Depends(current_user)):
         return_exceptions=True,
     )
 
-    # Also grab get_restaurant_details for the first dineout hit — the list is
-    # sparse (name + rating + locality only); we need this format to enrich it.
+    # Also grab get_restaurant_details + get_available_slots for the first
+    # dineout hit — the list is sparse (name + rating + locality only); we
+    # need these formats to enrich it. slots_raw is here specifically to
+    # tune parse_available_slots (see parse_mcp.py — unconfirmed against
+    # live output, unlike the other two parsers this endpoint feeds).
     details_raw = None
+    slots_raw = None
     d_parsed = _try_parse(dineout_raw)
     if d_parsed:
         first = d_parsed[0]
@@ -305,6 +328,13 @@ async def search_debug(user: User = Depends(current_user)):
             )
         except Exception as e:  # noqa: BLE001 — debug endpoint
             details_raw = e
+        try:
+            today = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d")
+            slots_raw = await orch.dineout.get_available_slots(
+                first["id"], date=today, guest_count=2, access_token=access_token
+            )
+        except Exception as e:  # noqa: BLE001 — debug endpoint
+            slots_raw = e
 
     return {
         "address_id": address_id,
@@ -313,6 +343,10 @@ async def search_debug(user: User = Depends(current_user)):
         "food_parsed": _try_parse(food_raw),
         "dineout_parsed": d_parsed,
         "restaurant_details_text": _safe_text(details_raw) if details_raw else None,
+        "available_slots_text": _safe_text(slots_raw) if slots_raw else None,
+        "available_slots_parsed": (
+            parse_available_slots(slots_raw) if slots_raw and not isinstance(slots_raw, Exception) else None
+        ),
     }
 
 

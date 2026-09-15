@@ -7,6 +7,35 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-09-15
+
+### Real Dineout slots in the picker/plan (TODO §2)
+
+- `get_available_slots` existed on `DineoutMCPClient` but was dead code —
+  never called from anywhere, and missing the `access_token` param every
+  sibling method takes, so it would always have hit the mock dispatch even
+  for a real, Swiggy-connected user. Fixed and wired up.
+- `_enrich_dineout` (`services/ai/planner.py`) now fetches today's (IST)
+  real slots alongside `get_restaurant_details`, independently best-effort
+  — one failing doesn't discard what the other found. `GET /search/
+  restaurant/{id}` does the same for the picker's card-expand. Both just
+  populate the existing `available_slots` field: `build_user_prompt`'s
+  "Slots:" line and `demo.html`'s `dcardHTML` already read it, they just
+  never got real data before.
+- New `parse_available_slots` in `parse_mcp.py` — **unconfirmed** against
+  live MCP output (no Swiggy token available to test against this round,
+  unlike `parse_restaurant_list`/`parse_restaurant_details`, both tuned
+  against real `_debug` output). Written tolerant of a couple of plausible
+  text conventions; `GET /search/_debug` now also captures the raw
+  `get_available_slots` text so it can be tuned once a token's available,
+  same loop the other two parsers went through.
+- `demo.html`: new `resolvedGuestCount()` helper (previously inlined once
+  in `generate()`, now shared with the picker's slot-fetch call so both
+  stay in sync).
+- 14 new tests: `parse_available_slots` (`test_parse_mcp.py`), the
+  enrichment merge behavior (`test_planner.py`), and the endpoint's merge
+  behavior (`test_search.py`, new file).
+
 ## [1.0.0] — 2026-09-14
 
 > First stable release. Login became Swiggy OAuth only (`demo-user-001`

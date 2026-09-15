@@ -371,12 +371,19 @@ _DETAILS_ENV = {
 }
 
 
-class TestEnrichDineout:
-    """_enrich_dineout fills a sparse picked-restaurant with get_restaurant_details."""
+_NO_SLOTS_ENV = {"result": {"content": [{"type": "text", "text": "No availability today."}]}}
 
-    def _orch(self, details_env):
+
+class TestEnrichDineout:
+    """_enrich_dineout fills a sparse picked-restaurant with get_restaurant_details
+    and today's real available_slots — each is independently best-effort."""
+
+    def _orch(self, details_env, slots_env=_NO_SLOTS_ENV):
         orch = MCPOrchestrator()
         orch.dineout.get_restaurant_details = AsyncMock(return_value=details_env)
+        # Default: no real network call, no slots merged — tests that only
+        # care about `details` behavior don't need to think about slots.
+        orch.dineout.get_available_slots = AsyncMock(return_value=slots_env)
         return orch
 
     @pytest.mark.asyncio
@@ -402,6 +409,7 @@ class TestEnrichDineout:
     async def test_returns_pick_unchanged_on_failure(self):
         orch = MCPOrchestrator()
         orch.dineout.get_restaurant_details = AsyncMock(side_effect=RuntimeError("500"))
+        orch.dineout.get_available_slots = AsyncMock(return_value=_NO_SLOTS_ENV)
         sparse = {"id": "x", "name": "Somewhere"}
         out = await _enrich_dineout(orch, sparse, {}, "tok")
         assert out == sparse
@@ -411,6 +419,37 @@ class TestEnrichDineout:
         orch = self._orch({"result": {"content": [{"type": "text", "text": "no fields"}]}})
         sparse = {"id": "x", "name": "Somewhere"}
         assert await _enrich_dineout(orch, sparse, {}, "tok") == sparse
+
+    @pytest.mark.asyncio
+    async def test_merges_available_slots(self):
+        slots_env = {"result": {"content": [{"type": "text", "text": "7:30 PM - Available\n8:00 PM - Booked"}]}}
+        orch = self._orch(_DETAILS_ENV, slots_env)
+        sparse = {"id": "1369973", "name": "Kwality Restaurant"}
+
+        out = await _enrich_dineout(orch, sparse, {}, "tok", guest_count=4)
+
+        assert out["available_slots"] == [{"time": "7:30 PM", "available": True}]
+        assert orch.dineout.get_available_slots.call_args.kwargs["guest_count"] == 4
+        assert orch.dineout.get_available_slots.call_args.kwargs["access_token"] == "tok"
+
+    @pytest.mark.asyncio
+    async def test_slots_failure_keeps_details_enrichment(self):
+        """One MCP call failing doesn't discard what the other found."""
+        orch = self._orch(_DETAILS_ENV)
+        orch.dineout.get_available_slots = AsyncMock(side_effect=RuntimeError("500"))
+        sparse = {"id": "1369973", "name": "Kwality Restaurant"}
+
+        out = await _enrich_dineout(orch, sparse, {}, "tok")
+
+        assert out["cuisine"] == "North Indian, Mughlai"  # details still merged
+        assert "available_slots" not in out
+
+    @pytest.mark.asyncio
+    async def test_no_available_slots_leaves_field_absent(self):
+        orch = self._orch(_DETAILS_ENV, _NO_SLOTS_ENV)
+        sparse = {"id": "1369973", "name": "Kwality Restaurant"}
+        out = await _enrich_dineout(orch, sparse, {}, "tok")
+        assert "available_slots" not in out
 
 
 # ── refine_plan: classify (answer vs modify) + patch sanitising ─────────────
