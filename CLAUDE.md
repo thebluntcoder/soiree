@@ -178,3 +178,12 @@ throwaway `create_async_engine`/`aioredis.from_url` connections rather than the 
 `AsyncSessionLocal`/`get_redis()` singletons — those bind to whichever asyncio event loop first
 touches them, and reusing them from a fixture's own throwaway loop poisons them for the live
 server's subsequent requests. See `conftest.py`'s module docstring for full preconditions.
+
+## graphify
+
+This project has a graphify knowledge graph at graphify-out/.
+
+Rules:
+- Before answering architecture or codebase questions, read graphify-out/GRAPH_REPORT.md for god nodes and community structure
+- If graphify-out/wiki/index.md exists, navigate it instead of reading raw files
+- After modifying code files in this session, run `$(cat graphify-out/.graphify_python) -c "from graphify.watch import _rebuild_code; from pathlib import Path; _rebuild_code(Path('.'))"` to keep the graph current — bare `python3` doesn't have the `graphify` package installed on this machine; `graphify-out/.graphify_python` records the interpreter that does

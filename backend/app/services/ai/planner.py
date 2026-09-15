@@ -39,16 +39,23 @@ since that's a short conversational reply where token-by-token is fine.
 import asyncio
 import json
 import logging
+from datetime import datetime
 from typing import AsyncIterator, Any
+from zoneinfo import ZoneInfo
 import anthropic
 
 from app.core.config import settings
 from app.services.ai.prompts import build_system_prompt, build_user_prompt
 from app.services.mcp.orchestrator import MCPOrchestrator
-from app.services.mcp.parse_mcp import parse_restaurant_details
+from app.services.mcp.parse_mcp import parse_available_slots, parse_restaurant_details
 from app.services.offers.engine import OffersEngine
 
 logger = logging.getLogger(__name__)
+
+# Dineout's get_available_slots wants a calendar date, and Swiggy's own
+# slot times are IST — using UTC's calendar date directly would pick
+# "yesterday" for roughly the first 5.5 hours of the IST day.
+_IST = ZoneInfo("Asia/Kolkata")
 
 
 async def _enrich_dineout(
@@ -56,14 +63,20 @@ async def _enrich_dineout(
     selected: dict[str, Any],
     mcp_context: dict[str, Any],
     access_token: str,
+    guest_count: int = 2,
 ) -> dict[str, Any]:
     """
     Fill a sparse picked-Dineout dict (name/rating/locality only) with the
     full details — cuisine, cost, amenities, timings, real offers — via
-    get_restaurant_details. Best-effort: returns `selected` unchanged on
-    any failure.
+    get_restaurant_details, and today's real available slots via
+    get_available_slots (see build_user_prompt's "Slots:" line and
+    demo.html's dcardHTML — both already consume `available_slots`, they
+    just never got real data before this). Each call is independently
+    best-effort: one failing doesn't discard what the other found.
     """
     coords = (mcp_context.get("dineout") or {}).get("data", {}).get("coordinates") or {}
+    merged = dict(selected)
+
     try:
         raw = await orchestrator.dineout.get_restaurant_details(
             selected["id"],
@@ -74,23 +87,43 @@ async def _enrich_dineout(
         details = parse_restaurant_details(raw)
     except Exception as e:  # noqa: BLE001 — enrichment is optional
         logger.warning(
-            "Dineout enrich failed for %s: %s",
+            "Dineout details enrich failed for %s: %s",
             selected.get("id"),
             e,
             extra={"restaurant_id": selected.get("id")},
         )
-        return selected
+        details = None
 
-    if not details:
-        return selected
-    merged = dict(selected)
-    for key, value in details.items():
-        if key == "name" or value in (None, "", [], {}):
-            continue
-        # enriched offers / amenities are richer — prefer them
-        if key in ("offers", "amenities") or not merged.get(key):
-            merged[key] = value
-    merged["_enriched"] = True
+    if details:
+        for key, value in details.items():
+            if key == "name" or value in (None, "", [], {}):
+                continue
+            # enriched offers / amenities are richer — prefer them
+            if key in ("offers", "amenities") or not merged.get(key):
+                merged[key] = value
+        merged["_enriched"] = True
+
+    try:
+        today = datetime.now(_IST).strftime("%Y-%m-%d")
+        raw_slots = await orchestrator.dineout.get_available_slots(
+            selected["id"],
+            date=today,
+            guest_count=guest_count,
+            access_token=access_token,
+        )
+        slots = parse_available_slots(raw_slots)
+    except Exception as e:  # noqa: BLE001 — enrichment is optional
+        logger.warning(
+            "Dineout slots enrich failed for %s: %s",
+            selected.get("id"),
+            e,
+            extra={"restaurant_id": selected.get("id")},
+        )
+        slots = None
+
+    if slots:
+        merged["available_slots"] = slots
+
     return merged
 
 # Fields of a PlanRequest that a chat "refine" is allowed to change.
@@ -225,6 +258,7 @@ async def generate_plan(
             selected_dineout = await _enrich_dineout(
                 orchestrator, selected_dineout, mcp_context,
                 event_data["access_token"],
+                guest_count=event_data.get("guest_count", 2),
             )
 
         # ── Stage 2: Build prompts with full context ──────────────────────────

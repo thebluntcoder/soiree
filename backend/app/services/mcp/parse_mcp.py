@@ -40,6 +40,10 @@ _COORDS = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _AD_SUFFIX = re.compile(r"\s*\((?:ad|sponsored|promoted)\)\s*$", re.IGNORECASE)
+_TIME = re.compile(r"\b(\d{1,2}(?::\d{2})?\s*[AP]M)\b", re.IGNORECASE)
+_UNAVAILABLE = re.compile(
+    r"\b(?:not\s+available|unavailable|booked|full|sold\s*out|closed)\b", re.IGNORECASE
+)
 
 
 def mcp_text(response: Any) -> str:
@@ -314,3 +318,41 @@ def parse_restaurant_details(response: Any) -> dict[str, Any] | None:
     if cm := _COORDS.search(text):
         out["coordinates"] = {"lat": float(cm.group(1)), "lng": float(cm.group(2))}
     return out
+
+
+# ── get_available_slots: real format UNCONFIRMED, no live token to test ────
+#
+# Unlike parse_restaurant_list / parse_restaurant_details (both tuned against
+# real GET /search/_debug output), this one is a best guess following the
+# same "human-readable text" convention Dineout uses everywhere else — one
+# time per line, an optional status word, real IDs in the same "(ID: xxx)"
+# style _ID already matches. It's deliberately tolerant of either
+# convention (only available times listed, or every slot listed with a
+# status marker) so it degrades gracefully either way. Extend `_debug` with
+# a real get_available_slots call and tune this once a Swiggy token is
+# available to test against — same loop parse_restaurant_list went through.
+
+
+def parse_available_slots(response: Any) -> list[dict[str, Any]] | None:
+    """
+    Parse a Dineout get_available_slots response into
+    [{time, available, slotId?}, ...], already filtered to available=True —
+    the shape build_user_prompt() and demo.html's dcardHTML() both already
+    consume via `available_slots`. None if it isn't parseable text.
+    """
+    text = mcp_text(response)
+    if not text:
+        return None
+
+    slots: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        m = _TIME.search(line)
+        if not m:
+            continue
+        if _UNAVAILABLE.search(line):
+            continue
+        slot: dict[str, Any] = {"time": m.group(1).upper(), "available": True}
+        if sid := _ID.search(line):
+            slot["slotId"] = sid.group(1).strip()
+        slots.append(slot)
+    return slots or None
