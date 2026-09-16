@@ -12,8 +12,11 @@ REAL TOOL NAMES (confirmed from Swiggy docs):
   search_restaurants_dineout → find dine-in restaurants by lat/lng + query
   get_restaurant_details    → ratings, amenities, menu images, Dineout deals
   get_available_slots       → 7-day forward availability by date + guestCount
-  book_table                → make a reservation (Phase 2) — NOT idempotent
-  get_booking_status        → check reservation status by bookingId
+  book_table                → make a reservation — NOT idempotent, see
+                               services/orders/dineout_ordering.py::book_with_retry
+                               for the retry contract around that
+  get_booking_status        → check reservation status by bookingId — also
+                               the pre-retry check book_with_retry uses after a 5xx
 
 CRITICAL DIFFERENCES FROM FOOD/INSTAMART:
   - Dineout uses lat/lng from get_saved_locations (NOT addressId)
@@ -43,6 +46,7 @@ MCP URL: https://mcp.swiggy.com/dineout
 """
 
 import asyncio
+import uuid
 from typing import Any
 
 from app.services.mcp.base import BaseMCPClient
@@ -96,6 +100,8 @@ class DineoutMCPClient(BaseMCPClient):
             "search_restaurants_dineout": self._mock_search_restaurants,
             "get_restaurant_details": self._mock_get_restaurant_details,
             "get_available_slots": self._mock_get_available_slots,
+            "book_table": self._mock_book_table,
+            "get_booking_status": self._mock_get_booking_status,
         }
         handler = dispatch.get(tool_name)
         if not handler:
@@ -233,6 +239,54 @@ class DineoutMCPClient(BaseMCPClient):
             params["longitude"] = lng
         return await self._call_mcp(
             "get_restaurant_details", params, access_token=access_token
+        )
+
+    async def book_table(
+        self,
+        restaurant_id: str,
+        slot_id: str,
+        guest_count: int,
+        booking_date: str,
+        access_token: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Book a table for one slot.
+
+        NOT idempotent, and there's no documented Swiggy idempotency-key
+        param to send — see services/orders/dineout_ordering.py::
+        book_with_retry for the retry strategy around that (on a 5xx,
+        Swiggy's own advice is "call get_booking_status before retrying,"
+        but that only works once you already have a bookingId — the retry
+        logic handles the case where you don't).
+
+        Real response format is UNCONFIRMED (no live token tested this
+        round, same caveat as get_available_slots) — parse the result via
+        parse_mcp.parse_booking.
+        """
+        return await self._call_mcp(
+            "book_table",
+            {
+                "restaurantId": restaurant_id,
+                "slotId": slot_id,
+                "guestCount": guest_count,
+                "date": booking_date,
+            },
+            access_token=access_token,
+        )
+
+    async def get_booking_status(
+        self,
+        booking_id: str,
+        access_token: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Check a reservation's status by bookingId. Used both for a direct
+        status check and, critically, as the "did that 5xx actually book
+        the table?" check in book_with_retry before deciding whether a
+        retry is safe.
+        """
+        return await self._call_mcp(
+            "get_booking_status", {"bookingId": booking_id}, access_token=access_token
         )
 
     # -------------------------------------------------------------------------
@@ -452,5 +506,28 @@ class DineoutMCPClient(BaseMCPClient):
                 ],
                 "parking": True,
                 "acceptsLargeGroups": True,
+            }
+        }
+
+    async def _mock_book_table(self, params: dict) -> dict:
+        """Mock booking confirmation — deterministic shape, no injected
+        failures (failure-path tests mock the client method directly)."""
+        return {
+            "data": {
+                "bookingId": f"bk_{uuid.uuid4().hex[:10]}",
+                "status": "CONFIRMED",
+                "restaurantId": params["restaurantId"],
+                "slotId": params["slotId"],
+                "guestCount": params["guestCount"],
+                "date": params["date"],
+            }
+        }
+
+    async def _mock_get_booking_status(self, params: dict) -> dict:
+        """Mock status check — mirrors the booking as always confirmed."""
+        return {
+            "data": {
+                "bookingId": params["bookingId"],
+                "status": "CONFIRMED",
             }
         }

@@ -23,7 +23,7 @@ OPERATIONS IN THIS FILE:
 
 import json
 from datetime import datetime
-from sqlmodel import select
+from sqlmodel import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.plan import Plan, PlanStatus
@@ -58,6 +58,7 @@ async def update_plan_text(
     plan_id: str,
     raw_text: str,
     parsed: dict,
+    dineout_selection: dict | None = None,
 ) -> Plan | None:
     """
     Update plan content after Claude finishes generating.
@@ -70,6 +71,11 @@ async def update_plan_text(
         raw_text: full raw text from Claude (with ⏎ encoded)
         parsed:   dict with keys: brief, dineout, food, instamart,
                   health, offers, cost, totalCost, totalSavings, timeline
+        dineout_selection: generate_plan's `resolved["dineout"]` out-param
+                  (restaurant_id, name, date, guest_count, start_hour,
+                  available_slots) — what order placement later re-derives
+                  a real slotId from. None if no Dineout restaurant was
+                  actually selected for this plan.
 
     CONCEPT: Extracting cost integers from strings
     ------------------------------------------------
@@ -98,6 +104,7 @@ async def update_plan_text(
     plan.instamart_cart = parsed.get("instamart", "")
     plan.health_insight = parsed.get("health", "")
     plan.active_offers = parsed.get("offers", "")
+    plan.dineout_selection = json.dumps(dineout_selection) if dineout_selection else None
 
     # Store cost breakdown as integers for queryability.
     # Per-service costs are None when that service wasn't part of the plan.
@@ -120,6 +127,63 @@ async def get_plan(session: AsyncSession, plan_id: str) -> Plan | None:
     """Fetch a single plan by ID. Returns None if not found."""
     result = await session.execute(select(Plan).where(Plan.id == plan_id))
     return result.scalar_one_or_none()
+
+
+async def approve_and_claim_for_ordering(
+    session: AsyncSession, plan_id: str
+) -> tuple[Plan | None, str | None]:
+    """
+    Atomic ready -> ordering compare-and-swap, stamping approved_at.
+
+    Guards against a double "Confirm & Book" submit (double-click, a
+    duplicate BackgroundTasks invocation, two open tabs) with a single
+    conditional UPDATE ... WHERE status='ready' — not a select-then-write,
+    which would have a race between the read and the write under
+    concurrent requests. This is the only idempotency guard book_table
+    gets on the app side (see services/orders/dineout_ordering.py's
+    module docstring for why no key is sent to Swiggy itself).
+
+    Returns (plan, None) if this call won the race, or (None, reason)
+    where reason is the plan's current status (already claimed by another
+    request) or "not_found".
+    """
+    result = await session.execute(
+        update(Plan)
+        .where(Plan.id == plan_id, Plan.status == PlanStatus.ready)
+        .values(status=PlanStatus.ordering, approved_at=datetime.utcnow())
+        .returning(Plan.id)
+    )
+    await session.commit()
+    if result.first() is None:
+        current = await get_plan(session, plan_id)
+        return None, (current.status if current else "not_found")
+
+    plan = await get_plan(session, plan_id)
+    return plan, None
+
+
+async def save_order_result(
+    session: AsyncSession,
+    plan_id: str,
+    *,
+    status: PlanStatus,
+    dineout_booking_id: str | None = None,
+    order_error: str | None = None,
+) -> None:
+    """
+    Terminal write from place_dineout_booking's own DB session (the
+    request's session is gone once FastAPI's BackgroundTasks runs, after
+    the response is already sent — see workers/tasks.py).
+    """
+    plan = await get_plan(session, plan_id)
+    if not plan:
+        return
+    plan.status = status
+    if dineout_booking_id is not None:
+        plan.dineout_booking_id = dineout_booking_id
+    plan.order_error = order_error
+    session.add(plan)
+    await session.commit()
 
 
 async def list_user_plans(

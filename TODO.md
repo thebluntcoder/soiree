@@ -176,18 +176,68 @@ customer id). So one Swiggy sign-in covers everything.
 
 ## 4. Phase 2 — Approve & Order
 
-- [ ] `book_table` (Dineout) — needs `slotId` from `get_available_slots`;
-      free bookings only in v1
+### Dineout `book_table` ✅ — the one service actually wired up
+
+- [x] `book_table` + `get_booking_status` (Dineout) — real + mock on
+      `DineoutMCPClient`. `services/orders/dineout_ordering.py::
+      book_with_retry` is the retry contract: 401/419/403 never retry;
+      a 4xx/RPC rejection gets exactly one corrective retry against a
+      freshly re-fetched slot; a 5xx/timeout is genuinely ambiguous —
+      tries to recover a `bookingId` from the failed body first, then
+      `get_booking_status`, then falls back to re-checking the same
+      `slotId` via `get_available_slots` (still available → safe to
+      retry; gone, or the re-check itself fails → stop, don't retry —
+      a heuristic, not proof, see the module docstring). No app-side
+      idempotency key is sent to Swiggy (no documented param); `Plan.
+      status` itself (`ready → ordering` compare-and-swap) is the only
+      guard against Soirée's own system double-submitting.
+- [x] Mandatory confirmation screen before any order fires — but the
+      60s undo window is **pre-send, not post-send**: there's no
+      confirmed `cancel_booking` tool, so "undo" means "the 60s
+      countdown hasn't finished, so `book_table` was never called," not
+      cancelling something already booked. Real post-booking
+      cancellation stays blocked until a `cancel_booking` tool is
+      confirmed to exist.
+- [x] `POST /plans/{plan_id}/order` — real now (Dineout only; 422 if
+      any other service is requested or the plan has no
+      `dineout_selection`). Runs the booking via FastAPI
+      `BackgroundTasks`, not Celery — see `workers/tasks.py`'s module
+      docstring for why (one bounded MCP call, not multi-service
+      orchestration; no worker process exists in the current Railway
+      deploy). Revisit Celery once Food+Instamart also need background
+      execution. `celery==5.6.3` in `requirements.txt` stays unused
+      for now.
+- [x] `GET /orders/{plan_id}` now reports real data (`order_error`
+      added) — `demo.html` polls it after confirming.
+- [x] `Plan.dineout_selection` (new) — the resolved booking target
+      (restaurant + full slot list), captured at generation time. This
+      closed a gap that predates this TODO item: the picker/plan
+      pipeline resolved a real restaurant + slots but discarded them
+      after generation, keeping only Claude's prose. Order placement
+      always re-fetches slots live rather than trusting the stored
+      ones (`closest_slot()` picks the one nearest the plan's
+      `start_hour`) — never cache slot data, per `dineout.py`'s own rule.
+
+### Food / Instamart — blocked on a real item picker, not started
+
+- [ ] **New prerequisite, found while building the above**: neither
+      service can be wired to `place_food_order`/`checkout` yet because
+      neither has real, bookable item IDs anywhere in the current
+      pipeline. The picker only ever carries dish *names* for Food (no
+      IDs); there's no product-selection step for Instamart at all —
+      today both just get free-text AI prose. Needs: Food →
+      `search_menu`/`get_restaurant_menu` (real dish IDs) → a UI to pick
+      dishes + quantities → `update_food_cart` → `get_food_cart`
+      (verify ≤ ₹1000, COD only) → `place_food_order`. Instamart →
+      `search_products` (exists) → a UI to review/adjust a cart of real
+      `spinId`s → `update_cart` → `get_cart` → `checkout`. This is a
+      genuinely new frontend UX project, not a backend wire-up — scope
+      it separately before starting.
 - [ ] `place_food_order` (Food) — ₹1000 hard cap, COD only, **not
-      idempotent** (on 5xx call `get_food_orders` before retrying)
-- [ ] `checkout` (Instamart) — `spinId` required, **not idempotent**
-- [ ] Mandatory confirmation screen before any order fires
-- [ ] 60-second undo window (Swiggy cancel API)
-- [ ] `workers/tasks.py` — Celery app (broker = `REDIS_URL`) +
-      `place_all_orders(plan_id)` that writes booking/order IDs back onto
-      the `plans` row and advances `PlanStatus`
-- [ ] `POST /plans/{plan_id}/order` — currently returns 501
-- [ ] Wire `GET /orders/{plan_id}` into a tracking UI
+      idempotent** (on 5xx call `get_food_orders` before retrying).
+      Blocked on the item picker above.
+- [ ] `checkout` (Instamart) — `spinId` required, **not idempotent**.
+      Blocked on the item picker above.
 - [ ] Offer re-validation at checkout (offers are only fetched at
       generation with a 5-min Redis TTL)
 

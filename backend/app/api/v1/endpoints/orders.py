@@ -1,13 +1,14 @@
 """
 api/v1/endpoints/orders.py — Order status.
 
-Placing orders (Dineout book_table, Food place_food_order, Instamart
-checkout) is Phase 2 and lives at POST /plans/{plan_id}/order.
+Placing orders lives at POST /plans/{plan_id}/order. Only Dineout
+(book_table) is wired up — Food place_food_order / Instamart checkout
+need a real item/dish/product picker first (see TODO.md §4).
 
 This router is read-only: it reports whatever order / booking identifiers
-have been recorded on a plan so far. Today those are always empty; once
-the ordering agent exists it will populate them and this endpoint becomes
-the tracking surface.
+have been recorded on a plan so far, populated by
+workers/tasks.py::place_dineout_booking via FastAPI BackgroundTasks. The
+frontend polls this after POST /order to learn the outcome.
 
   GET /api/v1/orders/{plan_id}
 """
@@ -60,4 +61,5 @@ async def get_order_status(
         "placed": placed,
         "orders": orders,
         "approved_at": plan.approved_at,
+        "order_error": plan.order_error,
     }

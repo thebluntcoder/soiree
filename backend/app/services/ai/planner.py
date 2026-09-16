@@ -172,7 +172,9 @@ def _get_clients() -> tuple[anthropic.AsyncAnthropic, MCPOrchestrator, OffersEng
 
 
 async def generate_plan(
-    event_data: dict[str, Any], usage: dict[str, Any] | None = None
+    event_data: dict[str, Any],
+    usage: dict[str, Any] | None = None,
+    resolved: dict[str, Any] | None = None,
 ) -> AsyncIterator[str]:
     """
     Full plan generation pipeline — yields SSE-formatted text chunks.
@@ -189,6 +191,15 @@ async def generate_plan(
                once generation succeeds, for cost/analytics logging. Can't
                be a return value since this is a generator; the caller
                reads it after the `async for` completes.
+        resolved: optional out-param, same reasoning as `usage`. If a
+               Dineout restaurant was actually selected, populated with
+               resolved["dineout"] = {restaurant_id, name, date,
+               guest_count, start_hour, available_slots} — everything
+               order placement needs to re-derive a real slotId later
+               (see Plan.dineout_selection). Claude's own prose has no
+               structural link back to one specific slot, so this is the
+               durable record of what was actually offered, not a guess
+               parsed out of the generated text.
 
     Yields:
         SSE-formatted strings: "data: <encoded_plan>\n\n"
@@ -260,6 +271,18 @@ async def generate_plan(
                 event_data["access_token"],
                 guest_count=event_data.get("guest_count", 2),
             )
+
+        # Record what was actually offered so order placement can later
+        # re-derive a real slotId — see generate_plan's `resolved` docstring.
+        if resolved is not None and isinstance(selected_dineout, dict) and selected_dineout.get("id"):
+            resolved["dineout"] = {
+                "restaurant_id": selected_dineout["id"],
+                "name": selected_dineout.get("name"),
+                "date": datetime.now(_IST).strftime("%Y-%m-%d"),
+                "guest_count": event_data.get("guest_count", 2),
+                "start_hour": event_data.get("start_hour", 20),
+                "available_slots": selected_dineout.get("available_slots") or [],
+            }
 
         # ── Stage 2: Build prompts with full context ──────────────────────────
         # build_user_prompt handles both cases: a restaurant the user picked

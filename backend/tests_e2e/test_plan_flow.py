@@ -45,6 +45,86 @@ def test_form_to_picker_to_plan_to_refine(authed_page):
     )
 
 
+def test_approve_and_order_books_dineout_table(authed_page):
+    """
+    form -> picker -> plan -> Approve & Order -> confirm modal -> pre-send
+    undo countdown -> real book_table call (mock branch, no Swiggy token)
+    -> polls GET /orders/{plan_id} until confirmed.
+
+    ?fast_undo=1 shortens the 60s pre-send delay to 2s — see demo.html's
+    _FAST_UNDO, a test-only escape hatch never referenced by real UI.
+    """
+    page, static_base = authed_page
+
+    page.goto(f"{static_base}/demo.html?fast_undo=1")
+    page.wait_for_selector("#loadScreen", state="hidden", timeout=10_000)
+
+    page.fill("#loc", "Lucknow")
+    page.click("#planCta")
+    page.wait_for_selector("#pickerState", state="visible", timeout=15_000)
+    page.click("#dcard-0")
+    page.click("#fcard-0")
+    page.click("#generateFromPicker")
+    page.wait_for_selector("#planContent", state="visible", timeout=20_000)
+    expect(page.locator("#planContent")).to_contain_text("Farzi Cafe")
+
+    # Only Dineout is wired up — deselect Food/Instamart first (all three
+    # are active by default) or approveOrder() blocks with a message.
+    page.click('.svc-sel[data-svc="food"]')
+    page.click('.svc-sel[data-svc="instamart"]')
+    page.click("text=Approve & Order")
+
+    page.wait_for_selector("#orderConfirmModal", state="visible", timeout=5_000)
+    expect(page.locator("#orderConfirmDetails")).to_contain_text("Farzi Cafe")
+    page.click("#orderConfirmBtn")
+
+    expect(page.locator("#orderBanner")).to_be_visible(timeout=5_000)
+    expect(page.locator("#orderBannerText")).to_contain_text("Undo")
+
+    expect(page.locator("#orderBannerText")).to_contain_text(
+        "Table booked", timeout=20_000
+    )
+
+
+def test_undo_before_countdown_ends_never_books(authed_page):
+    """Clicking Undo during the pre-send window sends nothing — book_table
+    is never called (the whole point of a pre-send-only undo design)."""
+    page, static_base = authed_page
+
+    page.goto(f"{static_base}/demo.html")  # real 60s window — never lets it elapse
+    page.wait_for_selector("#loadScreen", state="hidden", timeout=10_000)
+
+    page.fill("#loc", "Lucknow")
+    page.click("#planCta")
+    page.wait_for_selector("#pickerState", state="visible", timeout=15_000)
+    page.click("#dcard-0")
+    page.click("#fcard-0")
+    page.click("#generateFromPicker")
+    page.wait_for_selector("#planContent", state="visible", timeout=20_000)
+
+    page.click('.svc-sel[data-svc="food"]')
+    page.click('.svc-sel[data-svc="instamart"]')
+    page.click("text=Approve & Order")
+    page.wait_for_selector("#orderConfirmModal", state="visible", timeout=5_000)
+    page.click("#orderConfirmBtn")
+
+    expect(page.locator("#orderBanner")).to_be_visible(timeout=5_000)
+    page.click("#orderBannerUndo")
+    expect(page.locator("#orderBanner")).to_be_hidden()
+
+    # Confirm nothing was ever sent — GET /orders/{plan_id} directly, still
+    # 'ready', never 'ordering' or 'confirmed'.
+    result = page.evaluate(
+        """async () => {
+            const r = await fetch(`${API_BASE}/api/v1/orders/${S.planId}`, {
+                headers: authHeaders(),
+            });
+            return (await r.json()).status;
+        }"""
+    )
+    assert result == "ready"
+
+
 def test_plan_history(authed_page):
     """Generate a plan, then reopen it from the History screen."""
     page, static_base = authed_page

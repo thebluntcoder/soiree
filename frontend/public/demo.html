@@ -1941,6 +1941,35 @@ input[type=range]::-webkit-slider-thumb:hover {
   </div>
 </div>
 
+<!-- Order confirmation modal (Dineout book_table only) -->
+<div id="orderConfirmModal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(6,4,2,0.72);backdrop-filter:blur(8px);align-items:center;justify-content:center;padding:20px;font-family:'DM Sans',sans-serif;">
+  <div style="width:100%;max-width:400px;background:var(--surface);border:1px solid var(--gold-dim);border-radius:16px;padding:28px 26px;box-shadow:0 24px 80px rgba(0,0,0,0.5);">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;">
+      <div style="font-family:'Cormorant Garamond',serif;font-size:22px;letter-spacing:3px;color:var(--gold);">CONFIRM</div>
+      <div onclick="closeOrderConfirm()" style="cursor:pointer;color:var(--text3);font-size:18px;line-height:1;">✕</div>
+    </div>
+    <div id="orderConfirmDetails" style="font-size:13px;color:var(--text2);line-height:1.9;margin:14px 0 8px;"></div>
+    <div style="font-size:12px;color:var(--text3);line-height:1.7;margin-bottom:20px;">
+      Swiggy will book this table under your account. Soirée can't cancel it once sent —
+      cancel directly in the Swiggy app if needed.
+    </div>
+    <button id="orderConfirmBtn" onclick="confirmBooking()"
+      style="width:100%;padding:13px;background:linear-gradient(135deg,var(--gold2),var(--gold3));border:none;border-radius:10px;color:#1a1006;font-size:13px;font-weight:600;letter-spacing:1px;cursor:pointer;margin-bottom:10px;">
+      Confirm & Book Table
+    </button>
+    <button onclick="closeOrderConfirm()"
+      style="width:100%;padding:11px;background:none;border:1px solid var(--border2);border-radius:10px;color:var(--text2);font-size:13px;cursor:pointer;">
+      Cancel
+    </button>
+  </div>
+</div>
+
+<!-- Persistent undo / booking-status banner -->
+<div id="orderBanner" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:9999;background:var(--surface);border:1px solid var(--gold-dim);border-radius:12px;padding:14px 20px;box-shadow:0 12px 40px rgba(0,0,0,0.4);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text2);display:flex;align-items:center;gap:14px;max-width:90vw;">
+  <span id="orderBannerText"></span>
+  <a id="orderBannerUndo" onclick="undoBooking()" style="color:var(--gold);cursor:pointer;text-decoration:underline;text-underline-offset:2px;white-space:nowrap;">Undo</a>
+</div>
+
 <script>
 // ── STATE ─────────────────────────────────────────────────────────
 const API_BASE = window.location.hostname === 'localhost'
@@ -1970,6 +1999,7 @@ const S = {
   planText: '',
   addressUsed: null,
   lastReq: null,
+  planId: null,
 };
 
 // ── LOADING SCREEN ─────────────────────────────────────────────────
@@ -2584,7 +2614,6 @@ function renderPlan(plan) {
       <button class="btn-sec" onclick="resetPlan()">↺ &nbsp;New plan</button>
       <button class="btn-pri" onclick="approveOrder()">
         ✓ &nbsp;Approve & Order
-        <span class="phase-note">PHASE 2</span>
       </button>
       <span id="orderTotal" style="font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:400;color:var(--gold2);margin-left:12px;letter-spacing:0.5px;transition:all 0.3s"></span>
     </div>
@@ -2702,6 +2731,13 @@ function backToForm() {
   S.selectedFood = null;
   S.pickerRefine = '';
   S.pickerOffset = 0;
+  S.planId = null;
+  // Only clears local timers/UI — an already-in-flight booking (post-undo
+  // window) still completes server-side regardless; this just stops
+  // watching it here.
+  if (S.undoInterval) { clearInterval(S.undoInterval); S.undoInterval = null; }
+  if (S.orderPollInterval) { clearTimeout(S.orderPollInterval); S.orderPollInterval = null; }
+  hideOrderBanner();
 }
 
 // ── PLAN HISTORY ───────────────────────────────────────────────────
@@ -2812,6 +2848,7 @@ async function viewHistoryPlan(id) {
 
     document.getElementById('historyState').style.display = 'none';
     S.addressUsed = null;
+    S.planId = id;
     S.planText = planTextFromRecord(record);
     // Not this plan's original form params — chat can still answer
     // questions (stateless), but "modify" has nothing safe to regenerate
@@ -2873,7 +2910,7 @@ async function runGeneration(req, opts = {}) {
         if (!lines.length) continue;
         const content = lines.map(l => l.slice(6)).join('\n');
         if (content.trim() === '[DONE]') break;
-        if (content.startsWith('PLAN_ID:')) continue;
+        if (content.startsWith('PLAN_ID:')) { S.planId = content.slice(8).trim(); continue; }
         if (content.startsWith('[ERROR]')) throw new Error(content.slice(8));
         if (content.trim()) acc += content;
       }
@@ -3069,13 +3106,136 @@ function updateOrderTotal() {
   }
 }
 
+// ── ORDER PLACEMENT (Dineout book_table only — see TODO.md §4) ──────────────
 function approveOrder() {
   const selected = [...document.querySelectorAll('.svc-sel.active')].map(el => el.dataset.svc);
   if (selected.length === 0) {
     alert('Please select at least one service to order.');
     return;
   }
-  alert(`Phase 2 — will place orders for: ${selected.join(', ')}`);
+  const unsupported = selected.filter(s => s !== 'dineout');
+  if (unsupported.length) {
+    alert(
+      "Food and Instamart ordering aren't available yet — deselect them " +
+      "to book just the table."
+    );
+    return;
+  }
+  if (!S.planId || !S.selectedDineout?.id) {
+    alert(
+      "Nothing to book here — pick a restaurant from the picker and " +
+      "generate a fresh plan first."
+    );
+    return;
+  }
+  openOrderConfirm();
+}
+
+function openOrderConfirm() {
+  const r = S.selectedDineout;
+  const cost = document.getElementById('cost-dineout')?.dataset.val;
+  const time = document.getElementById('timeDisplay')?.textContent || '';
+  document.getElementById('orderConfirmDetails').innerHTML = `
+    <div><strong style="color:var(--text)">${r.name}</strong></div>
+    <div>Around ${time} · ${resolvedGuestCount()} guest${resolvedGuestCount() === 1 ? '' : 's'}</div>
+    ${cost ? `<div>₹${parseInt(cost).toLocaleString('en-IN')}</div>` : ''}
+  `;
+  document.getElementById('orderConfirmModal').style.display = 'flex';
+}
+
+function closeOrderConfirm() {
+  document.getElementById('orderConfirmModal').style.display = 'none';
+}
+
+function renderOrderBanner(text, { undo = false } = {}) {
+  const banner = document.getElementById('orderBanner');
+  document.getElementById('orderBannerText').textContent = text;
+  document.getElementById('orderBannerUndo').style.display = undo ? 'inline' : 'none';
+  banner.style.display = 'flex';
+}
+
+function hideOrderBanner() {
+  document.getElementById('orderBanner').style.display = 'none';
+}
+
+// The 60s "undo" window is pre-send, not post-send: nothing is sent to
+// Swiggy until the countdown reaches 0. There's no confirmed cancel_booking
+// tool, so undo can't mean "cancel a booking that already fired" — this
+// sidesteps that gap entirely rather than working around it unsafely.
+S.undoInterval = null;
+S.orderPollInterval = null;
+
+// Test-only escape hatch (?fast_undo=1) — shortens the 60s pre-send delay
+// so E2E doesn't need a real 60s wait. Never referenced by any real UI path.
+const _FAST_UNDO = new URLSearchParams(window.location.search).get('fast_undo') === '1';
+
+function confirmBooking() {
+  closeOrderConfirm();
+  let secondsLeft = _FAST_UNDO ? 2 : 60;
+  renderOrderBanner(`Booking table at ${S.selectedDineout.name}… Undo (${secondsLeft}s)`, { undo: true });
+  S.undoInterval = setInterval(() => {
+    secondsLeft -= 1;
+    if (secondsLeft <= 0) {
+      clearInterval(S.undoInterval);
+      S.undoInterval = null;
+      sendBookingRequest();
+      return;
+    }
+    renderOrderBanner(`Booking table at ${S.selectedDineout.name}… Undo (${secondsLeft}s)`, { undo: true });
+  }, 1000);
+}
+
+function undoBooking() {
+  if (S.undoInterval) { clearInterval(S.undoInterval); S.undoInterval = null; }
+  hideOrderBanner();
+}
+
+async function sendBookingRequest() {
+  renderOrderBanner('Booking your table…');
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/plans/${S.planId}/order`, {
+      method: 'POST', headers: authHeaders(),
+      body: JSON.stringify({ services: ['dineout'] }),
+    });
+    if (res.status === 401) { handle401(); hideOrderBanner(); return; }
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      renderOrderBanner(data.detail || "Couldn't start the booking — try again.");
+      return;
+    }
+    pollOrderStatus();
+  } catch (e) {
+    renderOrderBanner("Couldn't reach Soirée — check your connection and try again.");
+  }
+}
+
+const ORDER_ERROR_MESSAGES = {
+  DINEOUT_BOOKING_AMBIGUOUS: "We couldn't confirm the booking went through — check the Swiggy app directly before trying again.",
+  SLOT_UNAVAILABLE: 'That time slot just got booked — generate a fresh plan to pick another.',
+  RETRY_EXHAUSTED: "Swiggy wasn't responding — try again in a moment.",
+  SWIGGY_TOKEN_EXPIRED: 'Your Swiggy connection lapsed — reconnect and try again.',
+  INTERNAL_ERROR: 'Something went wrong on our end — try again in a moment.',
+};
+
+function pollOrderStatus(pollsLeft = 40) {
+  if (S.orderPollInterval) clearTimeout(S.orderPollInterval);
+  S.orderPollInterval = setTimeout(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/orders/${S.planId}`, { headers: authHeaders() });
+      if (res.status === 401) { handle401(); return; }
+      const data = await res.json();
+      if (data.status === 'confirmed') {
+        renderOrderBanner(`Table booked — confirmation #${data.orders?.dineout || ''}`.trim());
+        return;
+      }
+      if (data.status === 'failed') {
+        renderOrderBanner(ORDER_ERROR_MESSAGES[data.order_error] || 'The booking failed — try again.');
+        return;
+      }
+    } catch (e) { /* keep polling — a transient network blip isn't terminal */ }
+    if (pollsLeft > 1) pollOrderStatus(pollsLeft - 1);
+    else renderOrderBanner("Still working on it — check back in a moment.");
+  }, 3000);
 }
 
 // ── RESTAURANT PICKER ──────────────────────────────────────────────────────

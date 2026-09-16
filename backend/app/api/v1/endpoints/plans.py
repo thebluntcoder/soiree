@@ -28,16 +28,17 @@ ENDPOINTS:
   GET  /plans/history          → recent plans for the current user
   GET  /plans/event/{event_id} → all plans for one of the user's events
   GET  /plans/{plan_id}        → fetch a saved plan the user owns
-  POST /plans/{plan_id}/order  → place orders (Phase 2)
+  POST /plans/{plan_id}/order  → book the Dineout table (Food/Instamart not yet — TODO.md §4)
 """
 
 import asyncio
 import contextlib
 import json as _json
+import logging
 import time
 from typing import AsyncIterator
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,12 +55,16 @@ from app.schemas.plan import PlanRequest
 from app.services import analytics
 from app.services.ai.planner import generate_followup, generate_plan, refine_plan
 from app.services.plan_service import (
+    approve_and_claim_for_ordering,
     create_plan,
     get_event_plans,
     get_plan,
     list_user_plans,
     update_plan_text,
 )
+from app.workers.tasks import place_dineout_booking
+
+logger = logging.getLogger(__name__)
 
 # Each plan generation / refine is 1-2 Claude calls — cap per caller.
 _GENERATE_LIMIT = Depends(rate_limit("plan_generate", limit=25, window_seconds=3600))
@@ -165,10 +170,11 @@ async def create_plan_endpoint(
         accumulated = ""
         started_at = time.perf_counter()
         usage: dict = {}
+        resolved: dict = {}
         try:
             event_data = request.model_dump()
             event_data["access_token"] = access_token  # None = mock, token = live
-            async for chunk in _with_heartbeat(generate_plan(event_data, usage=usage)):
+            async for chunk in _with_heartbeat(generate_plan(event_data, usage=usage, resolved=resolved)):
                 yield chunk
                 if not chunk.startswith(":"):  # skip heartbeat comments
                     accumulated += chunk
@@ -179,6 +185,7 @@ async def create_plan_endpoint(
                 plan_id=plan_db.id,
                 raw_text=accumulated,
                 parsed=parsed,
+                dineout_selection=resolved.get("dineout"),
             )
             analytics.capture(
                 user.id,
@@ -355,10 +362,62 @@ async def get_plan_endpoint(
     return plan
 
 
-@router.post("/{plan_id}/order", summary="Place all orders for an approved plan")
-async def place_order(plan_id: str, user: User = Depends(current_user)):
+class OrderRequest(BaseModel):
+    services: list[str]
+
+
+_ORDER_LIMIT = Depends(rate_limit("plan_order", limit=10, window_seconds=3600))
+
+
+@router.post(
+    "/{plan_id}/order",
+    summary="Place orders for an approved plan",
+    dependencies=[_ORDER_LIMIT],
+)
+async def place_order(
+    plan_id: str,
+    request: OrderRequest,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(current_user),
+    session: AsyncSession = Depends(get_session),
+):
     """
-    Agentic ordering — Phase 2 feature.
-    Will call: book_table (Dineout) + place_food_order (Food) + checkout (Instamart)
+    Only Dineout (book_table) is wired up so far — Food/Instamart ordering
+    needs a real item/dish/product picker first (today's picker only
+    carries dish names, no IDs, for Food; no product-selection step at
+    all for Instamart). See TODO.md §4.
+
+    Books asynchronously via FastAPI BackgroundTasks (see workers/tasks.py
+    for why not Celery yet) — this returns immediately with status
+    "ordering"; poll GET /orders/{plan_id} for the outcome.
     """
-    raise HTTPException(status_code=501, detail="Agentic ordering coming in Phase 2")
+    plan = await get_plan(session=session, plan_id=plan_id)
+    if not plan or plan.user_id != user.id:
+        raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
+
+    unsupported = set(request.services) - {"dineout"}
+    if unsupported:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Not available yet: {sorted(unsupported)}. Only 'dineout' is supported.",
+        )
+    if not plan.dineout_selection:
+        raise HTTPException(
+            status_code=422, detail="This plan has no Dineout selection to book."
+        )
+
+    claimed, reason = await approve_and_claim_for_ordering(session, plan_id)
+    if not claimed:
+        raise HTTPException(
+            status_code=409, detail=f"Plan is not ready to order (status: {reason})."
+        )
+
+    access_token = await get_access_token(user.id)
+    background_tasks.add_task(place_dineout_booking, plan_id, access_token)
+    analytics.capture(
+        user.id, "order_requested", {"plan_id": plan_id, "services": request.services}
+    )
+    logger.info(
+        "Order requested", extra={"plan_id": plan_id, "user_id": user.id, "services": request.services}
+    )
+    return {"plan_id": plan_id, "status": "ordering"}

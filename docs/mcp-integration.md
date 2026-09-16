@@ -81,9 +81,36 @@ addresses, so a city with no saved address can't be searched directly).
 Dineout API errors on unknown params. Those args still shape the mock
 response and the query string.
 
-## Phase 2 (not built)
+## Booking (Dineout — the only service actually wired up for ordering)
 
-`book_table` (needs `slotId` from `get_available_slots`),
-`place_food_order` (₹1000 cap, COD only, **not idempotent**),
-`checkout` (Instamart, `spinId` required, **not idempotent**).
-All three require a confirmation screen before firing.
+`book_table(restaurant_id, slot_id, guest_count, booking_date)` — NOT
+idempotent, no documented idempotency-key param. `services/orders/
+dineout_ordering.py::book_with_retry` is the retry contract around that:
+
+- 401/419/403 → never retry (existing `PermissionError` taxonomy above).
+- 4xx / RPC error → the request was rejected outright (e.g. stale
+  `slotId`) — one corrective retry against a freshly re-fetched slot.
+- 5xx / timeout → **ambiguous**: try to recover a `bookingId` from the
+  failed response body first; if found, `get_booking_status(booking_id)`
+  settles it (`CONFIRMED`/`PENDING` → done, `NOT_FOUND` → safe to retry).
+  If no `bookingId` is recoverable, re-check the same `slotId` via
+  `get_available_slots` — still available → safe to retry; gone or the
+  re-check itself fails → **stop, don't retry** (can't tell if that's us
+  or someone else, and retrying risks a double booking). This is a
+  heuristic, not proof — see the module docstring for the full reasoning.
+
+`parse_mcp.parse_booking` (real response format **unconfirmed** — no live
+token tested yet, same caveat as `parse_available_slots`) parses both
+`book_table` and `get_booking_status` responses.
+
+Confirmation is pre-send, not post-send: there's no confirmed
+`cancel_booking` tool, so "undo" is a 60s client-side delay *before*
+`book_table` ever fires (demo.html), not cancellation of something
+already booked.
+
+## Phase 2, still not built
+
+Food `place_food_order` and Instamart `checkout` need a real item/dish/
+product picker first — today's picker only carries dish *names* for Food
+(no IDs) and has no product-selection step for Instamart at all. That's
+a separate future UX project, not a backend wire-up — see TODO.md §4.

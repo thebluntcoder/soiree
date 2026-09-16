@@ -7,6 +7,55 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-09-16
+
+### Dineout table booking — Phase 2, slice 1 (TODO §4)
+
+- **`book_table` + `get_booking_status`** (real + mock) on
+  `DineoutMCPClient` — `POST /plans/{plan_id}/order` now actually books a
+  table instead of returning 501. Only Dineout is wired up; Food/Instamart
+  ordering is blocked on a real item/dish/product picker that doesn't
+  exist yet (found while scoping this — see TODO.md §4 for the detailed
+  prerequisite).
+- **`services/orders/dineout_ordering.py::book_with_retry`** — `book_table`
+  is not idempotent and Swiggy documents no idempotency-key param, so this
+  is deliberately conservative: a 4xx gets exactly one corrective retry
+  against a freshly re-fetched slot; a 5xx/timeout is genuinely ambiguous
+  and tries to recover a `bookingId` from the failed response before
+  falling back to a "is the slot still there?" heuristic — inconclusive
+  either way means stop, not retry, to avoid a double booking. See the
+  module's own docstring for the full state machine.
+- **`Plan.dineout_selection`** (new column) — closes a gap found while
+  building this: the picker/plan pipeline resolved a real restaurant +
+  slot list at generation time but discarded it after, keeping only
+  Claude's prose. `generate_plan(..., resolved=...)` (new out-param,
+  same pattern as `usage`) now captures it; order placement always
+  re-fetches slots live rather than trusting the stored ones
+  (`parse_mcp.closest_slot()` picks nearest the plan's `start_hour`).
+- **Confirmation + pre-send 60s undo**, not post-send cancellation —
+  there's no confirmed `cancel_booking` tool, so "undo" means the 60s
+  countdown hasn't finished and `book_table` was never called, not
+  cancelling something already booked. `demo.html`'s new
+  `#orderConfirmModal` mirrors `#loginModal`'s existing overlay recipe;
+  a persistent banner shows the countdown, then polls
+  `GET /orders/{plan_id}` (now reporting real data, `order_error` added)
+  until `confirmed` or `failed`.
+- **`BackgroundTasks`, not Celery** — `celery==5.6.3` has sat unused in
+  `requirements.txt` since early on; this is one bounded MCP call, and
+  the current Railway deploy has no worker service. Revisit once
+  Food+Instamart also need background execution (see `workers/tasks.py`'s
+  module docstring for the full reasoning).
+- **`plan_service.approve_and_claim_for_ordering`** — an atomic
+  `UPDATE ... WHERE status='ready'` compare-and-swap, the only guard
+  against Soirée's own system double-submitting (nothing is sent to
+  Swiggy as an idempotency key — no documented param to send).
+- 37 new unit tests across `test_dineout_mcp.py`, `test_dineout_ordering.py`
+  (the retry state machine), `test_orders_endpoint.py`, and `test_parse_mcp.py`
+  (`closest_slot`) — 240 passing (was 203). Plus two new E2E tests in
+  `test_plan_flow.py`: one full click-through to a confirmed mock booking,
+  one proving Undo during the pre-send window means `book_table` is never
+  called — 7 passing (was 5).
+
 ## [1.1.0] — 2026-09-15
 
 ### Real Dineout slots in the picker/plan (TODO §2)
