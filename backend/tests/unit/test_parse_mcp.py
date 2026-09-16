@@ -6,6 +6,7 @@ Food packs a JSON blob in its text field; Dineout sends numbered text lines.
 """
 
 from app.services.mcp.parse_mcp import (
+    closest_slot,
     mcp_text,
     parse_available_slots,
     parse_restaurant_details,
@@ -243,3 +244,38 @@ class TestAvailableSlots:
 
     def test_all_unavailable_is_none(self):
         assert parse_available_slots(_env("7:00 PM - Booked\n7:30 PM - Full")) is None
+
+
+class TestClosestSlot:
+    SLOTS = [
+        {"time": "7:00 PM", "available": True},
+        {"time": "8:00 PM", "available": True},
+        {"time": "9:30 PM", "available": True},
+    ]
+
+    def test_picks_nearest(self):
+        assert closest_slot(self.SLOTS, 20.0)["time"] == "8:00 PM"
+        assert closest_slot(self.SLOTS, 19.1)["time"] == "7:00 PM"
+        assert closest_slot(self.SLOTS, 21.4)["time"] == "9:30 PM"
+
+    def test_exact_match(self):
+        assert closest_slot(self.SLOTS, 19.0)["time"] == "7:00 PM"
+
+    def test_ignores_unavailable_slots(self):
+        slots = [{"time": "8:00 PM", "available": False}, {"time": "9:00 PM", "available": True}]
+        assert closest_slot(slots, 20.0)["time"] == "9:00 PM"
+
+    def test_am_pm_and_midnight_noon(self):
+        slots = [{"time": "12:00 AM"}, {"time": "12:30 PM"}]
+        assert closest_slot(slots, 0.0)["time"] == "12:00 AM"
+        assert closest_slot(slots, 12.5)["time"] == "12:30 PM"
+
+    def test_empty_list_is_none(self):
+        assert closest_slot([], 20.0) is None
+
+    def test_all_unavailable_is_none(self):
+        assert closest_slot([{"time": "8:00 PM", "available": False}], 20.0) is None
+
+    def test_unparseable_time_skipped(self):
+        slots = [{"time": "whenever"}, {"time": "9:00 PM"}]
+        assert closest_slot(slots, 20.0)["time"] == "9:00 PM"

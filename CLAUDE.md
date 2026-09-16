@@ -107,6 +107,37 @@ enriching a picked Dineout restaurant via `get_restaurant_details` first
 location/city (with a large synonym/neighbourhood table) before firing Food/Instamart/Dineout
 concurrently via `asyncio.gather`.
 
+### Ordering: Dineout only, BackgroundTasks not Celery, undo is pre-send
+
+`POST /plans/{plan_id}/order` books a real Dineout table via `book_table` — the only
+service actually wired up (Food/Instamart need a real dish/product picker first; see
+TODO.md §4). The resolved restaurant + slot list is captured at generation time into
+`Plan.dineout_selection` (`planner.py`'s `generate_plan(..., resolved=...)` out-param,
+same pattern as `usage`) since Claude's own prose has no structural link back to one
+specific slot. Order placement always re-fetches slots live rather than trusting the
+stored ones — `parse_mcp.closest_slot()` picks whichever is nearest the plan's
+`start_hour` — matching `dineout.py`'s own "never cache slot data" rule.
+
+`book_table` is NOT idempotent and Swiggy documents no idempotency-key param, so
+`services/orders/dineout_ordering.py::book_with_retry` is deliberately conservative: a
+4xx gets one corrective retry with a fresh slot; a 5xx/timeout is genuinely ambiguous
+and tries to recover a `bookingId` from the failed response before falling back to a
+"is the slot still there?" heuristic — if that's inconclusive too, it stops rather than
+risk a double booking. `Plan.status` (`ready → ordering` via an atomic
+`UPDATE ... WHERE status='ready'` in `plan_service.approve_and_claim_for_ordering`) is
+the only guard against *Soirée's own system* double-submitting — nothing is sent to
+Swiggy as an idempotency key. See the module docstring in `dineout_ordering.py` for the
+full state machine.
+
+Runs via FastAPI `BackgroundTasks`, not Celery, even though `celery==5.6.3` has sat in
+`requirements.txt` since early on — the current Railway deploy is a single process with
+no worker service, and one bounded MCP call doesn't justify standing that up yet.
+Revisit once Food+Instamart also need background execution.
+
+The 60s "undo" window in `demo.html` is pre-send, not post-send: there's no confirmed
+`cancel_booking` tool, so the countdown happens *before* `book_table` ever fires, and
+undo just means the request is never sent — not cancelling something already booked.
+
 ### The SSE stream has two encoding tricks, both load-bearing
 
 1. Claude's plan text contains real newlines, which the SSE framing protocol treats as

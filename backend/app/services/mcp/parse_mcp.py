@@ -356,3 +356,76 @@ def parse_available_slots(response: Any) -> list[dict[str, Any]] | None:
             slot["slotId"] = sid.group(1).strip()
         slots.append(slot)
     return slots or None
+
+
+_TIME_PARTS = re.compile(r"(\d{1,2})(?::(\d{2}))?\s*([AP]M)", re.IGNORECASE)
+
+
+def _slot_hour(time_str: str) -> float | None:
+    """'7:30 PM' -> 19.5. None if it doesn't match the expected shape."""
+    m = _TIME_PARTS.match(time_str.strip())
+    if not m:
+        return None
+    hour = int(m.group(1)) % 12
+    minute = int(m.group(2) or 0)
+    if m.group(3).upper() == "PM":
+        hour += 12
+    return hour + minute / 60
+
+
+def closest_slot(slots: list[dict[str, Any]], start_hour: float) -> dict[str, Any] | None:
+    """
+    The available slot whose time is nearest `start_hour` (24h float, e.g.
+    19.5 for 7:30 PM). Claude's own prose has no structural link back to
+    one specific slot — this is what order placement uses to re-derive a
+    real slotId, run fresh against a live-refetched slot list (never a
+    stored/stale one — slots change in real time as others book).
+    """
+    candidates = [
+        (s, _slot_hour(s.get("time", "")))
+        for s in slots
+        if s.get("available", True)
+    ]
+    candidates = [(s, h) for s, h in candidates if h is not None]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda pair: abs(pair[1] - start_hour))[0]
+
+
+# ── book_table / get_booking_status: real format UNCONFIRMED ───────────────
+#
+# Same caveat as parse_available_slots — no live token tested this round.
+# A booking confirmation is a single record, not a list, so this tries a
+# structured {"data": {...}} shape first (what the mock emits, and plausibly
+# what a real booking confirmation looks like even though search/details
+# come back as text), then falls back to a "Key: Value" text scan like
+# parse_restaurant_details for Booking ID: / Status: lines.
+
+_BOOKING_ID_LINE = re.compile(r"booking\s*id\s*[:=]\s*(\S+)", re.IGNORECASE)
+_STATUS_LINE = re.compile(r"\bstatus\s*[:=]\s*(\w+)", re.IGNORECASE)
+
+
+def parse_booking(response: Any) -> dict[str, Any] | None:
+    """
+    Parse a book_table / get_booking_status response into
+    {"booking_id": ..., "status": ...}. None if neither a structured
+    bookingId nor a recognisable "Booking ID:" line is found — used both
+    for a normal response and, defensively, to try to recover a
+    bookingId out of a failed (5xx) response body in book_with_retry.
+    """
+    if isinstance(response, dict):
+        data = response.get("data")
+        if isinstance(data, dict) and data.get("bookingId"):
+            return {"booking_id": str(data["bookingId"]), "status": data.get("status")}
+
+    text = mcp_text(response)
+    if not text:
+        return None
+    bid = _BOOKING_ID_LINE.search(text)
+    if not bid:
+        return None
+    status_m = _STATUS_LINE.search(text)
+    return {
+        "booking_id": bid.group(1).strip(),
+        "status": status_m.group(1).strip().upper() if status_m else None,
+    }

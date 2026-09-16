@@ -33,6 +33,15 @@ Each transition is triggered by a specific action:
 
 This state machine pattern is important for the agentic ordering in Phase 2 —
 it lets us resume, retry, or rollback cleanly.
+
+As of the first ordering slice (Dineout `book_table` only — Food/Instamart
+still have no real item-picker, see TODO.md §4), `ready → approved →
+ordering` collapses into one atomic write (`plan_service.
+approve_and_claim_for_ordering`) since the UI has a single "Approve &
+Order" button rather than a separate approve-then-order step.
+"confirmed" currently means "every service requested in *that* order
+call succeeded" — for a hybrid plan with Food/Instamart deselected, that's
+Dineout alone, not literally "every service the AI originally planned."
 """
 
 from sqlmodel import SQLModel, Field
@@ -107,6 +116,17 @@ class Plan(SQLModel, table=True):
         default=None,
         description="AI-generated 1-2 sentence note on how the plan aligns with the group's dietary needs and health_focus.",
     )
+    dineout_selection: Optional[str] = Field(
+        default=None,
+        description=(
+            "JSON snapshot of the resolved Dineout booking target, captured at "
+            "generation time: {restaurant_id, name, date, guest_count, "
+            "start_hour, available_slots}. The [DINEOUT] prose has no "
+            "structural link back to one specific slot, so this is what "
+            "order placement re-derives a slotId from (via closest_slot() "
+            "against a freshly re-fetched slot list — never this stale one)."
+        ),
+    )
 
     # --- Cost breakdown (in INR) ---
     # Stored as separate fields so we can query "plans under ₹2000" etc.
@@ -142,6 +162,14 @@ class Plan(SQLModel, table=True):
     instamart_order_id: Optional[str] = Field(
         default=None,
         description="Order ID from Instamart MCP checkout call.",
+    )
+    order_error: Optional[str] = Field(
+        default=None,
+        description=(
+            "Short machine-readable failure code set when status=failed "
+            "(DINEOUT_BOOKING_AMBIGUOUS, SLOT_UNAVAILABLE, RETRY_EXHAUSTED, "
+            "SWIGGY_TOKEN_EXPIRED, INTERNAL_ERROR). Surfaced by GET /orders/{plan_id}."
+        ),
     )
 
     # --- Edit tracking ---
