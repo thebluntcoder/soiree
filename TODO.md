@@ -95,6 +95,25 @@ records what's next. Roughly ordered by priority within each section.
 - [x] Rate limiter keys on the Soirée session first (`X-Soiree-Session`),
       then legacy Swiggy session, then IP.
 
+### Observability
+
+- [x] **Sentry error tracking** — opt-in via `SENTRY_DSN`, same no-op-when-
+      unset pattern as PostHog. Found the hard way: a real production 500
+      on `/search/` was invisible until a user hit it manually and reported
+      it — there was no error tracking at all to catch it sooner.
+- [x] **CORS-safe unhandled-exception handling** — the same bug's actual
+      symptom was worse than "no error tracking": the browser reported it
+      as a CORS block, not a 500, because the old (nonexistent) error path
+      let Starlette's default `ServerErrorMiddleware` handle it, which sits
+      outside `CORSMiddleware` — its response never got a CORS header, so
+      the browser couldn't tell the frontend what actually happened.
+      `main.py`'s new `_catch_unhandled_exceptions` middleware (registered
+      *before* `CORSMiddleware` so CORS wraps it) fixes this for every
+      future unhandled exception, not just this one. See `CLAUDE.md` for
+      why `@app.exception_handler(Exception)` doesn't work for this.
+- [ ] Alerting — Sentry captures errors now, but nothing pages/notifies
+      anyone when one fires. Revisit once there's real traffic to justify it.
+
 ### Auth ✅ (Swiggy OAuth is the login)
 
 Decided from `scripts/peek_token.py`: the Swiggy MCP access token is an

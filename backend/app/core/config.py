@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     POSTHOG_API_KEY: str = ""
     POSTHOG_HOST: str = "https://eu.i.posthog.com"
 
+    # Error tracking — Sentry. Unset SENTRY_DSN = never initialised, same
+    # opt-in-by-env-var pattern as PostHog above (see main.py).
+    SENTRY_DSN: str = ""
+
     # class Config:
     #     env_file = ".env"
     #     case_sensitive = True
