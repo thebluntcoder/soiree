@@ -59,8 +59,8 @@ restaurant (`{}` if Swiggy isn't connected).
 | `POST` | `/plans/chat` | SSE stream, **advisory only** (never changes the plan). Kept for the legacy Next.js client; `demo.html` uses `/plans/refine`. |
 | `GET`  | `/plans/{plan_id}` | The saved plan — `404` if it isn't yours. |
 | `GET`  | `/plans/event/{event_id}` | All plans for one of your events (newest first). |
-| `GET`  | `/plans/history` | Your 20 most recent `ready` plans. |
-| `POST` | `/plans/{plan_id}/order` | **501** — Phase 2 (autonomous ordering). |
+| `GET`  | `/plans/history` | Your 20 most recent `ready` plans, as lightweight summaries — `{ id, event_id, created_at, event_type, location, guest_count, dineout_cost, food_cost, instamart_cost, total_cost, total_savings }` (occasion/location/guest count joined from the parent `Event`; `Plan` alone doesn't carry them). Fetch `GET /plans/{plan_id}` for the full content. |
+| `POST` | `/plans/{plan_id}/order` | Body `{ services: ["dineout"] }` — **only `dineout` is supported** (`422` for anything else, or if the plan has no resolved Dineout selection). Atomically claims the plan (`ready → ordering`, `409` if already claimed/not ready), then books the table asynchronously via `book_table` (FastAPI `BackgroundTasks`) and returns `{ plan_id, status: "ordering" }` immediately. Poll `GET /orders/{plan_id}` for the outcome. Food/Instamart ordering isn't built — see TODO.md §4. |
 
 ### Plan text format
 
@@ -84,6 +84,10 @@ out. **No login required** — public deal data, no Swiggy token used.
 
 ## Orders
 
-`GET /orders/{plan_id}` → `{ plan_id, status, placed, orders, approved_at }`.
-Read-only, your plans only; `orders` ids stay null until the Phase 2 ordering
-agent runs.
+`GET /orders/{plan_id}` → `{ plan_id, status, placed, orders, approved_at, order_error }`.
+Read-only, your plans only. `orders.dineout` is populated once `POST
+/plans/{plan_id}/order` books the table; `orders.food`/`orders.instamart`
+stay null (not built — see TODO.md §4). `order_error` is a short
+machine-readable code (`DINEOUT_BOOKING_AMBIGUOUS`, `SLOT_UNAVAILABLE`,
+`RETRY_EXHAUSTED`, …) set when `status` is `failed`. `demo.html` polls this
+every ~3s after `POST /order` returns.
