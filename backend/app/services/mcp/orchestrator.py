@@ -508,7 +508,15 @@ class MCPOrchestrator:
             if isinstance(result, Exception):
                 context[service_name] = {
                     "error": str(result),
-                    "data": [],
+                    # A dict, matching the success-case shape ({"data":
+                    # {"restaurants": [...], "hasMore": ...}}) exactly —
+                    # not a bare list. search.py's _data() does
+                    # ctx.get("data", {}) expecting a dict either way;
+                    # a list here made dineout_data.get("hasMore") raise
+                    # AttributeError on every degraded search (found via
+                    # a real production 500 that this same PR's SSE-body
+                    # fix in base.py also addresses at the root).
+                    "data": {},
                     "note": f"{service_name} data unavailable — showing partial plan",
                 }
             elif service_name in ("food", "dineout"):

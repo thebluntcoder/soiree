@@ -113,6 +113,18 @@ records what's next. Roughly ordered by priority within each section.
       why `@app.exception_handler(Exception)` doesn't work for this.
 - [ ] Alerting — Sentry captures errors now, but nothing pages/notifies
       anyone when one fires. Revisit once there's real traffic to justify it.
+- [x] **The actual root cause of that 500** (found via Railway logs, once
+      login was sorted out): Swiggy's real MCP servers sometimes reply
+      SSE-framed (`event: message\ndata: {...}\n\n`) even for a single
+      complete response — `search_restaurants_dineout` did this live,
+      `get_addresses` didn't, same session. `response.json()` raised on
+      that shape, silently absorbed into a per-service error result by
+      `asyncio.gather(return_exceptions=True)` — a real, successful
+      dineout search was being thrown away. `base.py::_parse_sse_json` is
+      the fallback. Compounded by a second bug: the error shape's `"data"`
+      was a list, not a dict like the success shape — that's what actually
+      crashed (`search.py`'s `_data()` assumes a dict either way). Both
+      fixed; see `CLAUDE.md`'s "Real vs. mock MCP data" section.
 
 ### Auth ✅ (Swiggy OAuth is the login)
 

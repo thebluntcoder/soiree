@@ -23,6 +23,18 @@ Swiggy MCP returns text, not structured JSON:
 `_call_mcp` therefore returns the FULL decoded envelope (not `result["result"]`)
 so the orchestrator can reach into `result.content[*].text` and parse it.
 
+The HTTP framing of that envelope isn't consistent, though: some tools
+(get_addresses) reply with a plain JSON body; others
+(search_restaurants_dineout, observed in production) reply SSE-framed
+("event: message\ndata: {...}\n\n") even for one single, complete
+response — a server-side choice under MCP's "Streamable HTTP" transport,
+not something the client controls. `_real_mcp_call` tries plain JSON
+first, falls back to `_parse_sse_json` on a decode failure. Before this
+fallback existed, an SSE-framed dineout response raised JSONDecodeError,
+which `MCPOrchestrator`'s `asyncio.gather(..., return_exceptions=True)`
+silently absorbed into a per-service error result — real search results
+were being thrown away, not just failing loudly.
+
 ERROR HANDLING (per Swiggy docs)
 --------------------------------
   401 → token expired or invalid     → frontend re-runs OAuth
@@ -35,6 +47,7 @@ The `Accept: application/json, text/event-stream` header is REQUIRED —
 Swiggy MCP returns 406 without it.
 """
 
+import json
 import logging
 from typing import Any
 
@@ -44,6 +57,37 @@ logger = logging.getLogger(__name__)
 
 # Seconds to wait on any single MCP HTTP call before giving up.
 MCP_TIMEOUT_SECONDS = 10.0
+
+
+def _parse_sse_json(text: str) -> dict[str, Any] | None:
+    """
+    Parse a Server-Sent Events body down to its JSON-RPC payload.
+
+    MCP's "Streamable HTTP" transport lets a server answer a POST with
+    either a plain JSON body or an SSE stream (Content-Type: text/
+    event-stream) — observed in production against real Swiggy MCP:
+    some tools (get_addresses) come back as plain JSON, others
+    (search_restaurants_dineout) come back SSE-framed
+    ("event: message\\ndata: {...}\\n\\n") even for one single, complete
+    response. `response.json()` raises on that shape — this is the
+    fallback. Returns the last complete JSON object found across all
+    `data:` lines (multiple `data:` lines within one event are joined
+    with \\n, per the SSE spec), or None if nothing parses.
+    """
+    last: dict[str, Any] | None = None
+    for block in text.split("\n\n"):
+        data_lines = [
+            line[len("data:") :].lstrip(" ")
+            for line in block.splitlines()
+            if line.startswith("data:")
+        ]
+        if not data_lines:
+            continue
+        try:
+            last = json.loads("\n".join(data_lines))
+        except json.JSONDecodeError:
+            continue
+    return last
 
 
 class BaseMCPClient:
@@ -120,7 +164,12 @@ class BaseMCPClient:
             )
             response.raise_for_status()
 
-            result = response.json()
+            try:
+                result = response.json()
+            except json.JSONDecodeError:
+                result = _parse_sse_json(response.text)
+                if result is None:
+                    raise
             if "error" in result:
                 raise ValueError(f"MCP error: {result['error']}")
 

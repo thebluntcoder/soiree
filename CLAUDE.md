@@ -97,6 +97,19 @@ are **human-readable text**, not structured JSON — `services/mcp/parse_mcp.py`
 Food's embedded-JSON-in-text and Dineout's numbered-text-line formats into the same shape
 the mocks return.
 
+**A real MCP response's HTTP framing isn't consistent either.** Some tools
+(`get_addresses`) reply with a plain JSON body; others (`search_restaurants_dineout`,
+observed live) reply SSE-framed (`event: message\ndata: {...}\n\n`) even for one single,
+complete response — a server-side choice under MCP's "Streamable HTTP" transport, not
+something the client controls. `_real_mcp_call` tries `response.json()` first, falls back
+to `_parse_sse_json` on a decode failure. Before this existed, an SSE-framed response raised
+uncaught inside `asyncio.gather(..., return_exceptions=True)`, which `_process_results`
+silently turned into a per-service error result — a real, successful search was being
+thrown away as a false failure. That error shape's `"data"` field must stay a dict (`{}`),
+matching the success shape (`{"data": {"restaurants": [...], "hasMore": ...}}`) — it used to
+be a list, and downstream code (`search.py`'s `_data()`) assumes a dict either way; the
+mismatch is a real production crash this repo hit once, not a hypothetical.
+
 ### Two-step plan generation
 
 `POST /search/` fetches real restaurant options (fast, no Claude call) for a picker UI;

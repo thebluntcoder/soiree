@@ -37,8 +37,40 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - 5 new tests (`test_error_handling.py`) — the one deliberate exception to
   this repo's "call endpoints directly" test convention, since the
   property being proven (CORS headers surviving an error response) only
-  exists at the level of the real ASGI middleware stack. 245 passing
-  (was 240).
+  exists at the level of the real ASGI middleware stack.
+
+### The actual root cause, found via the Railway logs Sentry would have surfaced sooner
+
+- **Swiggy's real MCP servers sometimes reply SSE-framed
+  (`event: message\ndata: {...}\n\n`) even for a single, complete
+  `tools/call` response** — a server-side choice under MCP's "Streamable
+  HTTP" transport, observed live on `search_restaurants_dineout` (other
+  tools like `get_addresses` replied plain JSON in the same session).
+  `_real_mcp_call`'s `response.json()` raised `JSONDecodeError` on that
+  shape, which `MCPOrchestrator`'s `asyncio.gather(return_exceptions=
+  True)` silently absorbed into a per-service error result — a real,
+  successful dineout search was being thrown away as a false failure,
+  not just failing loudly. Fixed with a fallback SSE parser
+  (`base.py::_parse_sse_json`) that only kicks in when plain JSON parsing
+  fails, so the common (plain-JSON) case is unaffected.
+- **A second, compounding bug made that degradation itself crash the
+  request**: the error-fallback shape `_process_results` builds used
+  `"data": []` (a list) where the success-case shape always uses
+  `"data": {"restaurants": [...], "hasMore": ...}` (a dict).
+  `search.py`'s `_data()` helper does `ctx.get("data", {})` expecting a
+  dict either way — the `{}` default only applies when the key is
+  *missing*, not when it's present with the wrong type — so
+  `dineout_data.get("hasMore")` raised `AttributeError: 'list' object
+  has no attribute 'get'` on every degraded dineout search. This is the
+  exact crash a user hit in production; the browser reported it as the
+  CORS block described above. Fixed by making the error shape's `"data"`
+  a dict, consistent with the success shape — this also makes the
+  endpoint robust against *any* future service degradation reaching this
+  code path, not just this one root cause.
+- 13 new tests (`test_base_mcp.py`'s SSE parsing + real-call fallback,
+  `test_orchestrator.py`'s data-shape regression test, `test_search_
+  endpoint.py`'s end-to-end reproduction of the exact production crash)
+  — 258 passing (was 240).
 
 ## [1.2.0] — 2026-09-16
 
