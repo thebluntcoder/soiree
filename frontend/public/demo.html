@@ -2434,19 +2434,37 @@ function extractCostVal(sectionText) {
   return match ? parseInt(match[1].replace(/,/g, '')) : 0;
 }
 
+// [COST] is a single-line JSON object the model emits directly (see
+// backend/app/lib/parse_plan.py's parse_cost_block) — plain integers,
+// no ₹/commas. Tolerant of a wrapping code fence or stray prose around
+// it: pulls out the first {...} block rather than JSON.parse-ing the
+// whole section.
+function parseCostJson(costText) {
+  const match = (costText || '').match(/\{[\s\S]*\}/);
+  if (!match) return {};
+  try {
+    const data = JSON.parse(match[0]);
+    return (data && typeof data === 'object') ? data : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function fmtCost(n) {
+  return typeof n === 'number' && !isNaN(n) ? `₹${n.toLocaleString('en-IN')}` : '';
+}
+
+const COST_LABELS = { dineout: 'Dineout', food: 'Food Delivery', instamart: 'Instamart' };
+
 // Parse the [COST] section into {label, val} rows, whatever services it
-// lists and in whatever order. Tolerates annotations ("Dineout (Farzi
-// Cafe): ₹1,530 after discount") and a missing service (home/out mode).
+// lists and in whatever order. Missing/non-numeric keys (a service not
+// part of this plan) are simply omitted.
 function parseCostRows(costText) {
+  const data = parseCostJson(costText);
   const rows = [];
-  for (const seg of costText.split(/[|\n]/)) {
-    const s = seg.trim();
-    if (!s || /^total\b/i.test(s)) continue;
-    const amount = s.match(/₹\s*[\d,]+/);
-    if (!amount) continue;
-    let label = s.split(/[:—–-]/)[0].replace(/\([^)]*\)/g, '').trim();
-    if (!label || label.length > 24) continue;
-    rows.push({ label, val: amount[0].replace(/\s+/g, '') });
+  for (const key of ['dineout', 'food', 'instamart']) {
+    const val = fmtCost(data[key]);
+    if (val) rows.push({ label: COST_LABELS[key], val });
   }
   return rows;
 }
@@ -2464,7 +2482,7 @@ function parse(raw) {
     health: getSection(clean,'HEALTH'),
     offers,
     cost,
-    totalCost: (cost.match(/TOTAL:\s*(₹[\d,]+)/)||[])[1]||'',
+    totalCost: fmtCost(parseCostJson(cost).total),
     totalSavings: (offers.match(/TOTAL SAVINGS:\s*(₹[\d,]+)/)||[])[1]||'',
   };
 }
@@ -2799,13 +2817,15 @@ function planFromRecord(r) {
   let timeline = [];
   try { timeline = JSON.parse(r.timeline || '[]'); } catch (e) { timeline = []; }
 
-  const costRows = [];
-  if (r.dineout_cost) costRows.push(`Dineout: ₹${r.dineout_cost.toLocaleString('en-IN')}`);
-  if (r.food_cost) costRows.push(`Food Delivery: ₹${r.food_cost.toLocaleString('en-IN')}`);
-  if (r.instamart_cost) costRows.push(`Instamart: ₹${r.instamart_cost.toLocaleString('en-IN')}`);
-  const cost = costRows.length
-    ? costRows.join(' | ') + (r.total_cost ? `\nTOTAL: ₹${r.total_cost.toLocaleString('en-IN')}` : '')
-    : '';
+  // [COST] round-trips as the same JSON shape parse_cost_block() expects
+  // (see planTextFromRecord() below, which feeds this back to Claude as
+  // grounding text for follow-up chat on a reopened historical plan).
+  const costObj = {};
+  if (r.dineout_cost) costObj.dineout = r.dineout_cost;
+  if (r.food_cost) costObj.food = r.food_cost;
+  if (r.instamart_cost) costObj.instamart = r.instamart_cost;
+  if (r.total_cost) costObj.total = r.total_cost;
+  const cost = Object.keys(costObj).length ? JSON.stringify(costObj) : '';
 
   return {
     brief: '',

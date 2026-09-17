@@ -7,6 +7,38 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-09-17
+
+### Structured `[COST]` output (TODO §5)
+
+- **`[COST]` is now a single-line JSON object Claude emits directly**
+  (`{"dineout": 1800, "food": 400, "instamart": 150, "total": 2350}`, a
+  key omitted entirely when that service isn't part of the plan) instead
+  of free text (`"Dineout: ₹1,800 | Food Delivery: ₹400 | Instamart:
+  ₹150\nTOTAL: ₹2,350"`) parsed with regex tolerant of — but still
+  vulnerable to — the model's own formatting drift.
+- Backend: `parse_plan.py::parse_cost_block()` replaces the old
+  `_service_cost()` regex extractor — `json.loads()`s the first `{...}`
+  block in the section (tolerant of a wrapping code fence or a stray
+  sentence, not of arbitrary prose), returning `dineoutCost`/`foodCost`/
+  `instamartCost`/`totalCost` as `int | None` instead of `"₹X"` strings.
+  `plan_service.py::update_plan_text()` stores them directly — no more
+  string→int conversion for these four fields.
+- Frontend: `demo.html::parseCostJson()` mirrors the backend parser;
+  `parseCostRows()` and `parse()`'s `totalCost` extraction both use it
+  instead of pipe/regex parsing. `planFromRecord()` (history
+  reconstruction) now builds `plan.cost` as a JSON string instead of
+  pipe-delimited text, so a reopened historical plan's grounding text for
+  follow-up chat matches the live-generation shape.
+- Deliberately unchanged: the per-service `COST:`/`ESTIMATED TOTAL:`
+  lines embedded inside `[DINEOUT]`/`[FOOD]`/`[INSTAMART]` prose
+  (`extractCostVal()`), and `[OFFERS]`'s `TOTAL SAVINGS:` line
+  (`totalSavings` stays a `"₹X"` string) — only the dedicated `[COST]`
+  block's format changed.
+- 7 new tests (`test_offers.py::TestParseCostBlock`) covering the JSON
+  parse, missing keys, a wrapping code fence, stray prose, and malformed/
+  non-object JSON — 265 passing (was 258).
+
 ## [1.3.0] — 2026-09-17
 
 ### Sentry + CORS-safe error handling (TODO §3)

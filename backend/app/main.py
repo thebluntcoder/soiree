@@ -102,7 +102,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Soiree API",
     description="Life events concierge powered by Swiggy MCP — Food, Instamart, Dineout",
-    version="1.3.0",
+    version="1.4.0",
     lifespan=lifespan,
     # Interactive docs + raw schema are dev-only.
     docs_url=None if IS_PROD else "/docs",
@@ -181,4 +181,4 @@ async def health():
     - Load balancers to route traffic only to healthy instances
     - Your own sanity when something breaks
     """
-    return {"status": "ok", "service": "soiree-api", "version": "1.3.0"}
+    return {"status": "ok", "service": "soiree-api", "version": "1.4.0"}

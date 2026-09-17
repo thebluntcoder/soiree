@@ -12,7 +12,12 @@ WHAT WE TEST:
 
 import pytest
 from app.services.offers.engine import OffersEngine
-from app.lib.parse_plan import parse_plan_text, get_section, parse_timeline
+from app.lib.parse_plan import (
+    parse_plan_text,
+    get_section,
+    parse_timeline,
+    parse_cost_block,
+)
 
 
 class TestOffersEngine:
@@ -63,6 +68,45 @@ class TestOffersEngine:
             )
 
 
+class TestParseCostBlock:
+    """[COST] is a single-line JSON object the model emits directly — see
+    parse_plan.py's parse_cost_block()."""
+
+    def test_parses_all_four_keys(self):
+        result = parse_cost_block('{"dineout": 1275, "food": 400, "instamart": 149, "total": 1824}')
+        assert result == {"dineout": 1275, "food": 400, "instamart": 149, "total": 1824}
+
+    def test_missing_key_is_none_not_error(self):
+        result = parse_cost_block('{"food": 700, "instamart": 300, "total": 1000}')
+        assert result["dineout"] is None
+        assert result["total"] == 1000
+
+    def test_tolerates_wrapping_code_fence(self):
+        result = parse_cost_block('```json\n{"total": 500}\n```')
+        assert result["total"] == 500
+
+    def test_tolerates_stray_prose_around_the_object(self):
+        result = parse_cost_block('Here is the cost: {"total": 500} — enjoy!')
+        assert result["total"] == 500
+
+    def test_empty_section_returns_all_none(self):
+        assert parse_cost_block("") == {
+            "dineout": None, "food": None, "instamart": None, "total": None,
+        }
+
+    def test_malformed_json_returns_all_none(self):
+        result = parse_cost_block('{"total": }')
+        assert result == {
+            "dineout": None, "food": None, "instamart": None, "total": None,
+        }
+
+    def test_non_object_json_returns_all_none(self):
+        result = parse_cost_block("[1, 2, 3]")
+        assert result == {
+            "dineout": None, "food": None, "instamart": None, "total": None,
+        }
+
+
 class TestParsePlanText:
     """
     Tests for the server-side plan parser.
@@ -104,8 +148,7 @@ This plan balances indulgence with lighter options.
 TOTAL SAVINGS: ₹325
 
 [COST]
-Dineout: ₹1,275 | Food Delivery: ₹400 | Instamart: ₹149
-TOTAL: ₹1,824"""
+{"dineout": 1275, "food": 400, "instamart": 149, "total": 1824}"""
 
     def test_extracts_brief(self):
         result = parse_plan_text(self.SAMPLE_PLAN)
@@ -136,48 +179,48 @@ TOTAL: ₹1,824"""
 
     def test_extracts_total_cost(self):
         result = parse_plan_text(self.SAMPLE_PLAN)
-        assert result["totalCost"] == "₹1,824"
+        assert result["totalCost"] == 1824
 
     def test_extracts_total_savings(self):
         result = parse_plan_text(self.SAMPLE_PLAN)
         assert result["totalSavings"] == "₹325"
 
     def test_extracts_per_service_costs(self):
-        """Per-service costs are parsed from the [COST] line (point #8)."""
+        """Per-service costs are parsed from the [COST] JSON object."""
         result = parse_plan_text(self.SAMPLE_PLAN)
-        assert result["dineoutCost"] == "₹1,275"
-        assert result["foodCost"] == "₹400"  # "Food Delivery: ₹400"
-        assert result["instamartCost"] == "₹149"
+        assert result["dineoutCost"] == 1275
+        assert result["foodCost"] == 400
+        assert result["instamartCost"] == 149
 
-    def test_absent_service_cost_is_blank(self):
-        """A stay-in plan has no Dineout line → dineoutCost is ''."""
-        plan = "[COST]\nFood Delivery: ₹700 | Instamart: ₹300\nTOTAL: ₹1,000"
+    def test_absent_service_cost_is_none(self):
+        """A stay-in plan has no "dineout" key → dineoutCost is None."""
+        plan = '[COST]\n{"food": 700, "instamart": 300, "total": 1000}'
         result = parse_plan_text(plan)
-        assert result["dineoutCost"] == ""
-        assert result["foodCost"] == "₹700"
-        assert result["instamartCost"] == "₹300"
+        assert result["dineoutCost"] is None
+        assert result["foodCost"] == 700
+        assert result["instamartCost"] == 300
 
     def test_handles_missing_section(self):
         """
         If a section is absent (e.g. no Dineout for home-mode events),
         the parser must return empty string, not crash.
         """
-        minimal_plan = "[BRIEF]\nA simple home evening.\n\n[COST]\nTOTAL: ₹500"
+        minimal_plan = '[BRIEF]\nA simple home evening.\n\n[COST]\n{"total": 500}'
         result = parse_plan_text(minimal_plan)
         assert result["brief"] == "A simple home evening."
         assert result["dineout"] == ""
         assert result["food"] == ""
-        assert result["totalCost"] == "₹500"
+        assert result["totalCost"] == 500
 
     def test_decodes_enqueue_symbols(self):
         """
         Plans from the SSE stream have ⏎ instead of newlines.
         Parser must decode these before extracting sections.
         """
-        encoded_plan = "[BRIEF]⏎A romantic evening.⏎⏎[COST]⏎TOTAL: ₹1,000"
+        encoded_plan = '[BRIEF]⏎A romantic evening.⏎⏎[COST]⏎{"total": 1000}'
         result = parse_plan_text(encoded_plan)
         assert result["brief"] == "A romantic evening."
-        assert result["totalCost"] == "₹1,000"
+        assert result["totalCost"] == 1000
 
     def test_timeline_skips_non_pipe_lines(self):
         """Lines without | in the timeline section should be ignored."""
