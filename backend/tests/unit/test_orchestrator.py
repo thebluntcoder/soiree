@@ -117,6 +117,23 @@ class TestProcessResults:
         assert result["food"] == food_data
         assert "error" in result["dineout"]
 
+    def test_error_data_field_is_a_dict_not_a_list(self):
+        """
+        Regression test for a real production 500: the error fallback used
+        to be "data": [] (a list), inconsistent with the success-case shape
+        ({"data": {"restaurants": [...], "hasMore": ...}} — a dict).
+        search.py's _data() helper does ctx.get("data", {}) expecting a
+        dict either way; a list made dineout_data.get("hasMore") raise
+        AttributeError on every degraded search — not a hypothetical, this
+        is exactly what happened in production.
+        """
+        orchestrator = MCPOrchestrator()
+        result = orchestrator._process_results(["dineout"], [Exception("boom")])
+        assert isinstance(result["dineout"]["data"], dict)
+        assert result["dineout"]["data"] == {}
+        # the actual downstream access pattern that crashed:
+        assert result["dineout"]["data"].get("hasMore") is None
+
 
 class TestGatherContext:
     """

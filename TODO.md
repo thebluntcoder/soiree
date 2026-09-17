@@ -95,6 +95,37 @@ records what's next. Roughly ordered by priority within each section.
 - [x] Rate limiter keys on the Soirée session first (`X-Soiree-Session`),
       then legacy Swiggy session, then IP.
 
+### Observability
+
+- [x] **Sentry error tracking** — opt-in via `SENTRY_DSN`, same no-op-when-
+      unset pattern as PostHog. Found the hard way: a real production 500
+      on `/search/` was invisible until a user hit it manually and reported
+      it — there was no error tracking at all to catch it sooner.
+- [x] **CORS-safe unhandled-exception handling** — the same bug's actual
+      symptom was worse than "no error tracking": the browser reported it
+      as a CORS block, not a 500, because the old (nonexistent) error path
+      let Starlette's default `ServerErrorMiddleware` handle it, which sits
+      outside `CORSMiddleware` — its response never got a CORS header, so
+      the browser couldn't tell the frontend what actually happened.
+      `main.py`'s new `_catch_unhandled_exceptions` middleware (registered
+      *before* `CORSMiddleware` so CORS wraps it) fixes this for every
+      future unhandled exception, not just this one. See `CLAUDE.md` for
+      why `@app.exception_handler(Exception)` doesn't work for this.
+- [ ] Alerting — Sentry captures errors now, but nothing pages/notifies
+      anyone when one fires. Revisit once there's real traffic to justify it.
+- [x] **The actual root cause of that 500** (found via Railway logs, once
+      login was sorted out): Swiggy's real MCP servers sometimes reply
+      SSE-framed (`event: message\ndata: {...}\n\n`) even for a single
+      complete response — `search_restaurants_dineout` did this live,
+      `get_addresses` didn't, same session. `response.json()` raised on
+      that shape, silently absorbed into a per-service error result by
+      `asyncio.gather(return_exceptions=True)` — a real, successful
+      dineout search was being thrown away. `base.py::_parse_sse_json` is
+      the fallback. Compounded by a second bug: the error shape's `"data"`
+      was a list, not a dict like the success shape — that's what actually
+      crashed (`search.py`'s `_data()` assumes a dict either way). Both
+      fixed; see `CLAUDE.md`'s "Real vs. mock MCP data" section.
+
 ### Auth ✅ (Swiggy OAuth is the login)
 
 Decided from `scripts/peek_token.py`: the Swiggy MCP access token is an

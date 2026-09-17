@@ -7,6 +7,71 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-09-17
+
+### Sentry + CORS-safe error handling (TODO §3)
+
+- **Sentry error tracking** — opt-in via `SENTRY_DSN`, same no-op-when-
+  unset pattern PostHog already uses. Found the gap the hard way: a real
+  production 500 on `/search/` was invisible until a user hit it manually
+  and reported it — nothing was capturing or surfacing it.
+- **The actual symptom was worse than "no error tracking": the browser
+  reported the 500 as a CORS block.** An unhandled exception was falling
+  through to Starlette's default `ServerErrorMiddleware`, which sits
+  *outside* `CORSMiddleware` — its response never got a CORS header
+  attached, so the browser couldn't read the real error and reported
+  "blocked by CORS policy" instead, with no connection to the actual 500.
+- Fixed with a `BaseHTTPMiddleware` catch-all (`main.py::
+  _catch_unhandled_exceptions`), registered **before** `CORSMiddleware`
+  so CORS ends up outermost and wraps it — not `@app.exception_handler
+  (Exception)`, which doesn't work for this: Starlette special-cases a
+  bare-`Exception`/500 handler into `ServerErrorMiddleware` specifically,
+  same problem as having no handler at all. Verified empirically (a
+  working endpoint got the CORS header, one caught by
+  `@app.exception_handler` didn't, same origin) before landing on the
+  middleware approach — see `CLAUDE.md` for the full writeup, this is a
+  genuinely non-obvious Starlette/FastAPI gotcha worth not rediscovering.
+- Every unhandled exception now: logs with a full traceback (`extra=
+  {"path", "method"}`), captures to Sentry if configured, and returns a
+  generic `{"detail": "..."}` body — never the raw exception message.
+- 5 new tests (`test_error_handling.py`) — the one deliberate exception to
+  this repo's "call endpoints directly" test convention, since the
+  property being proven (CORS headers surviving an error response) only
+  exists at the level of the real ASGI middleware stack.
+
+### The actual root cause, found via the Railway logs Sentry would have surfaced sooner
+
+- **Swiggy's real MCP servers sometimes reply SSE-framed
+  (`event: message\ndata: {...}\n\n`) even for a single, complete
+  `tools/call` response** — a server-side choice under MCP's "Streamable
+  HTTP" transport, observed live on `search_restaurants_dineout` (other
+  tools like `get_addresses` replied plain JSON in the same session).
+  `_real_mcp_call`'s `response.json()` raised `JSONDecodeError` on that
+  shape, which `MCPOrchestrator`'s `asyncio.gather(return_exceptions=
+  True)` silently absorbed into a per-service error result — a real,
+  successful dineout search was being thrown away as a false failure,
+  not just failing loudly. Fixed with a fallback SSE parser
+  (`base.py::_parse_sse_json`) that only kicks in when plain JSON parsing
+  fails, so the common (plain-JSON) case is unaffected.
+- **A second, compounding bug made that degradation itself crash the
+  request**: the error-fallback shape `_process_results` builds used
+  `"data": []` (a list) where the success-case shape always uses
+  `"data": {"restaurants": [...], "hasMore": ...}` (a dict).
+  `search.py`'s `_data()` helper does `ctx.get("data", {})` expecting a
+  dict either way — the `{}` default only applies when the key is
+  *missing*, not when it's present with the wrong type — so
+  `dineout_data.get("hasMore")` raised `AttributeError: 'list' object
+  has no attribute 'get'` on every degraded dineout search. This is the
+  exact crash a user hit in production; the browser reported it as the
+  CORS block described above. Fixed by making the error shape's `"data"`
+  a dict, consistent with the success shape — this also makes the
+  endpoint robust against *any* future service degradation reaching this
+  code path, not just this one root cause.
+- 13 new tests (`test_base_mcp.py`'s SSE parsing + real-call fallback,
+  `test_orchestrator.py`'s data-shape regression test, `test_search_
+  endpoint.py`'s end-to-end reproduction of the exact production crash)
+  — 258 passing (was 240).
+
 ## [1.2.0] — 2026-09-16
 
 ### Dineout table booking — Phase 2, slice 1 (TODO §4)

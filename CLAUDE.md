@@ -97,6 +97,19 @@ are **human-readable text**, not structured JSON — `services/mcp/parse_mcp.py`
 Food's embedded-JSON-in-text and Dineout's numbered-text-line formats into the same shape
 the mocks return.
 
+**A real MCP response's HTTP framing isn't consistent either.** Some tools
+(`get_addresses`) reply with a plain JSON body; others (`search_restaurants_dineout`,
+observed live) reply SSE-framed (`event: message\ndata: {...}\n\n`) even for one single,
+complete response — a server-side choice under MCP's "Streamable HTTP" transport, not
+something the client controls. `_real_mcp_call` tries `response.json()` first, falls back
+to `_parse_sse_json` on a decode failure. Before this existed, an SSE-framed response raised
+uncaught inside `asyncio.gather(..., return_exceptions=True)`, which `_process_results`
+silently turned into a per-service error result — a real, successful search was being
+thrown away as a false failure. That error shape's `"data"` field must stay a dict (`{}`),
+matching the success shape (`{"data": {"restaurants": [...], "hasMore": ...}}`) — it used to
+be a list, and downstream code (`search.py`'s `_data()`) assumes a dict either way; the
+mismatch is a real production crash this repo hit once, not a hypothetical.
+
 ### Two-step plan generation
 
 `POST /search/` fetches real restaurant options (fast, no Claude call) for a picker UI;
@@ -175,6 +188,24 @@ to a legacy Swiggy session header, then client IP; it fails open if Redis is dow
 failures are normalized to `PermissionError` in `base.py` and mapped to specific frontend
 actions in `docs/mcp-integration.md` (401 → re-run OAuth, 419 → full re-auth, 403 → scope
 error) — check that doc before changing MCP error handling.
+
+### An unhandled exception's CORS headers come from middleware, not `@app.exception_handler`
+
+`main.py` catches every unhandled exception in a plain `try/except` inside `BaseHTTPMiddleware`
+(`_catch_unhandled_exceptions`), registered **before** `CORSMiddleware` — not via
+`@app.exception_handler(Exception)`. That's deliberate, not a style choice: Starlette
+special-cases a handler registered for the bare `Exception` class (or status `500`) — it's
+pulled out of the normal handler dict and passed to `ServerErrorMiddleware`, which Starlette
+places *outside every `app.add_middleware()` middleware*, CORS included (see
+`Starlette.build_middleware_stack`). A response built by that handler never passes back
+through `CORSMiddleware`, so the browser reports a "blocked by CORS policy" error that has
+nothing to do with CORS — it's masking whatever the real 500 was. Verified empirically while
+fixing a real production bug this way (`tests/unit/test_error_handling.py`). Since
+`app.add_middleware()` prepends, the middleware added **last** ends up **outermost** — CORS
+has to stay the last one added so it keeps wrapping this catch-all, not the other way round.
+Also captures to Sentry (`SENTRY_DSN`, same no-op-when-unset pattern as PostHog below) and
+logs the full traceback before returning a generic `{"detail": "..."}` body — never the raw
+exception message, which could leak internals.
 
 ### Logging is JSON, wired once at the top of `main.py`
 
