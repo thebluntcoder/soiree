@@ -15,8 +15,21 @@ CONCEPT: ⏎ decoding
 The planner encodes newlines as ⏎ before SSE transmission.
 By the time text reaches this parser it still has ⏎ symbols.
 We decode them back to \n first before extracting sections.
+
+CONCEPT: [COST] is structured, everything else is prose
+-----------------------------------------------------------
+Every other section is free text the model writes and we display
+as-is. [COST] used to be free text too ("Dineout: ₹X | Food: ₹Y"),
+parsed with regex tolerant of the model's own formatting drift
+(extra notes, a dropped pipe, an unexpected word order) — tolerant,
+but still silently wrong whenever the model's prose diverged from what
+the regex expected. It's now a single-line JSON object the model emits
+directly (see prompts.py's [COST] spec) — parse_cost_block() just
+json.loads() it, with a bit of tolerance for stray whitespace or a
+wrapping code fence, not for arbitrary prose.
 """
 
+import json
 import re
 from typing import Any
 
@@ -74,30 +87,39 @@ def extract_cost(text: str, pattern: str) -> str:
     return match.group(1) if match else ""
 
 
-def _service_cost(cost_section: str, label: str) -> str:
-    """
-    Pull one service's cost out of the [COST] section.
+_COST_KEYS = ("dineout", "food", "instamart", "total")
 
-    The section is meant to read:
-        Dineout: ₹1,275 | Food Delivery: ₹400 | Instamart: ₹149
-        TOTAL: ₹1,824
-    but the model is not perfectly consistent — it may split the line,
-    annotate it ("Dineout (Farzi Cafe): ₹1,530 after discount"), or drop
-    a service entirely when it isn't part of the plan. So: find the first
-    non-TOTAL line that mentions `label` and take the first ₹ amount on it.
 
-    `label` is "Dineout", "Food" or "Instamart".
-    Returns "" when the service isn't in the breakdown.
+def parse_cost_block(cost_section: str) -> dict[str, int | None]:
     """
-    # Split on newlines AND pipes so "A: ₹1 | B: ₹2" is two segments.
-    for segment in re.split(r"[|\n]", cost_section):
-        if segment.strip().upper().startswith("TOTAL"):
-            continue
-        if re.search(rf"\b{label}\b", segment, re.IGNORECASE):
-            amount = re.search(r"₹\s*([\d,]+)", segment)
-            if amount:
-                return "₹" + amount.group(1)
-    return ""
+    Parse the [COST] section — a single-line JSON object, e.g.
+    {"dineout": 1275, "food": 400, "instamart": 149, "total": 1824}.
+
+    A missing key means that service wasn't part of the plan (None, not
+    an error). Tolerant of the model wrapping the JSON in a ```json fence
+    or a stray sentence around it — extracts the first {...} block and
+    parses just that, not the whole section.
+
+    Returns {"dineout", "food", "instamart", "total"}, each int | None.
+    """
+    empty: dict[str, int | None] = {k: None for k in _COST_KEYS}
+    match = re.search(r"\{.*\}", cost_section, re.DOTALL)
+    if not match:
+        return empty
+    try:
+        data = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return empty
+    if not isinstance(data, dict):
+        return empty
+
+    def _int(value: Any) -> int | None:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    return {key: _int(data.get(key)) for key in _COST_KEYS}
 
 
 def parse_plan_text(raw_text: str) -> dict[str, Any]:
@@ -112,8 +134,10 @@ def parse_plan_text(raw_text: str) -> dict[str, Any]:
 
     Returns:
         dict with keys: brief, timeline, dineout, food, instamart,
-                        health, offers, cost, totalCost, totalSavings,
-                        dineoutCost, foodCost, instamartCost
+                        health, offers, cost, totalSavings (all str),
+                        totalCost, dineoutCost, foodCost, instamartCost
+                        (all int | None — from [COST]'s JSON, see
+                        parse_cost_block)
     """
     # Decode ⏎ proxy characters back to newlines
     # Then strip SSE "data: " prefixes if any leaked through
@@ -128,6 +152,7 @@ def parse_plan_text(raw_text: str) -> dict[str, Any]:
     health = get_section(cleaned, "HEALTH")
     offers = get_section(cleaned, "OFFERS")
     cost = get_section(cleaned, "COST")
+    cost_data = parse_cost_block(cost)
 
     return {
         "brief": brief,
@@ -138,9 +163,9 @@ def parse_plan_text(raw_text: str) -> dict[str, Any]:
         "health": health,
         "offers": offers,
         "cost": cost,
-        "totalCost": extract_cost(cost, r"TOTAL:\s*(₹[\d,]+)"),
+        "totalCost": cost_data["total"],
         "totalSavings": extract_cost(offers, r"TOTAL SAVINGS:\s*(₹[\d,]+)"),
-        "dineoutCost": _service_cost(cost, "Dineout"),
-        "foodCost": _service_cost(cost, "Food"),
-        "instamartCost": _service_cost(cost, "Instamart"),
+        "dineoutCost": cost_data["dineout"],
+        "foodCost": cost_data["food"],
+        "instamartCost": cost_data["instamart"],
     }

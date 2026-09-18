@@ -89,8 +89,7 @@ _PLAN_TEXT = (
     "[OFFERS]\n"
     "15% off pre-booking at Farzi Cafe.\n"
     "[COST]\n"
-    "Dineout: ₹1,800 | Food Delivery: ₹400 | Instamart: ₹150\n"
-    "TOTAL: ₹2,350"
+    '{"dineout": 1800, "food": 400, "instamart": 150, "total": 2350}'
 )
 _REFINE_REPLY = "Farzi Cafe's rooftop table is the romantic pick here — good call."
 

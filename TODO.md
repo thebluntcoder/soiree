@@ -290,9 +290,16 @@ customer id). So one Swiggy sign-in covers everything.
       request to regenerate from. `brief` isn't persisted (SSE-only), so
       history views skip that line. Covered by `tests_e2e::test_plan_history`.
 - [ ] Shareable plan card (+ guest RSVP — Phase 2)
-- [ ] `demo.html` cost-breakdown parsing is regex-based and tolerant but
+- [x] `demo.html` cost-breakdown parsing is regex-based and tolerant but
       still model-format-dependent; a structured `[COST]` block from the
-      model would be sturdier
+      model would be sturdier — `[COST]` is now a single-line JSON object
+      Claude emits directly (`{"dineout": 1800, "food": 400, "instamart":
+      150, "total": 2350}`, keys omitted for services not in the plan),
+      parsed by `parse_plan.py::parse_cost_block()` (backend) and
+      `demo.html::parseCostJson()` (frontend) instead of regex over free
+      text. Per-service embedded `COST:`/`ESTIMATED TOTAL:` lines inside
+      `[DINEOUT]`/`[FOOD]`/`[INSTAMART]`, and `[OFFERS]`'s `TOTAL SAVINGS:`
+      line, are unchanged — only the dedicated `[COST]` block moved.
 - [x] Restaurant picker: show the resolved address / city at the top —
       already done as part of §1's "Surface the address used"
       (`#pickerLocWarning` banner + the 📍 line above the rendered plan);

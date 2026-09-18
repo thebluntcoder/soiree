@@ -106,12 +106,14 @@ async def update_plan_text(
     plan.active_offers = parsed.get("offers", "")
     plan.dineout_selection = json.dumps(dineout_selection) if dineout_selection else None
 
-    # Store cost breakdown as integers for queryability.
-    # Per-service costs are None when that service wasn't part of the plan.
-    plan.dineout_cost = parse_cost(parsed.get("dineoutCost", ""))
-    plan.food_cost = parse_cost(parsed.get("foodCost", ""))
-    plan.instamart_cost = parse_cost(parsed.get("instamartCost", ""))
-    plan.total_cost = parse_cost(parsed.get("totalCost", ""))
+    # Cost breakdown: [COST] is now structured JSON (see parse_plan.py's
+    # parse_cost_block), so parse_plan_text() already returns these as
+    # int | None — no string parsing needed here. total_savings is the
+    # exception: it comes from [OFFERS], which is still free text.
+    plan.dineout_cost = parsed.get("dineoutCost")
+    plan.food_cost = parsed.get("foodCost")
+    plan.instamart_cost = parsed.get("instamartCost")
+    plan.total_cost = parsed.get("totalCost")
     plan.total_savings = parse_cost(parsed.get("totalSavings", ""))
 
     # Mark as ready — user can now see and approve the plan

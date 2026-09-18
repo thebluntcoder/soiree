@@ -101,11 +101,10 @@ Format: • <service>: <offer description> — saves ₹<estimated saving>
 End with: TOTAL SAVINGS: ₹<sum>
 
 [COST]
-Itemised breakdown. Use EXACTLY this format — one line, pipe-separated,
-plain "Label: ₹amount" pairs with no parenthetical notes, then TOTAL on
-its own line. Omit a service entirely if it is not part of this plan:
-Dineout: ₹<amount> | Food Delivery: ₹<amount> | Instamart: ₹<amount>
-TOTAL: ₹<sum>
+A single-line JSON object, EXACTLY this shape — plain integers, no ₹
+symbol, no commas, no quotes around the numbers. Omit a service key
+entirely if it is not part of this plan; "total" is always present:
+{"dineout": <amount>, "food": <amount>, "instamart": <amount>, "total": <sum>}
 
 RULES:
 - Use only data from the MCP context — never invent names, prices, or slots
