@@ -60,15 +60,42 @@ restaurant (`{}` if Swiggy isn't connected).
 | `GET`  | `/plans/{plan_id}` | The saved plan — `404` if it isn't yours. |
 | `GET`  | `/plans/event/{event_id}` | All plans for one of your events (newest first). |
 | `GET`  | `/plans/history` | Your 20 most recent `ready` plans, as lightweight summaries — `{ id, event_id, created_at, event_type, location, guest_count, dineout_cost, food_cost, instamart_cost, total_cost, total_savings }` (occasion/location/guest count joined from the parent `Event`; `Plan` alone doesn't carry them). Fetch `GET /plans/{plan_id}` for the full content. |
+| `POST` | `/plans/{plan_id}/share` | Turns on the read-only public link and returns `{ share_token }` — build the URL as `<frontend>/demo.html?share=<token>`. Idempotent (an already-shared plan returns the same token). `404` if the plan isn't yours, `409` while it's still `generating`. 30/hr per caller. |
+| `DELETE` | `/plans/{plan_id}/share` | Turns the link off (`{ share_token: null }`); the old URL `404`s immediately. `404` if the plan isn't yours. |
 | `POST` | `/plans/{plan_id}/order` | Body `{ services: ["dineout"] }` — **only `dineout` is supported** (`422` for anything else, or if the plan has no resolved Dineout selection). Atomically claims the plan (`ready → ordering`, `409` if already claimed/not ready), then books the table asynchronously via `book_table` (FastAPI `BackgroundTasks`) and returns `{ plan_id, status: "ordering" }` immediately. Poll `GET /orders/{plan_id}` for the outcome. Food/Instamart ordering isn't built — see TODO.md §4. |
 
 ### Plan text format
 
 Claude emits section markers the frontend parses:
 `[BRIEF] [TIMELINE] [DINEOUT] [FOOD] [INSTAMART] [HEALTH] [OFFERS] [COST]`.
-`[COST]` is `Dineout: ₹x | Food Delivery: ₹y | Instamart: ₹z` then
-`TOTAL: ₹sum`. `parse_plan.py` extracts per-service and total costs into
-integer columns on the `plans` row.
+`[COST]` is a single-line JSON object of plain integers —
+`{"dineout": 1800, "food": 400, "instamart": 150, "total": 2350}` — with a key
+omitted for any service not in the plan (`total` is always present).
+`parse_plan.py::parse_cost_block()` reads it into the integer cost columns on the
+`plans` row; the frontend parses the same shape (`demo.html::parseCostJson()`).
+
+## Shared plans
+
+`GET /shared/{token}` — **no login, no headers needed.** Returns the read-only view of a
+plan whose owner turned sharing on; `404` (same body either way) if the token never existed
+or was revoked. The token is a capability: possessing it is the permission.
+
+Response is an explicit allowlist, not the `Plan` row:
+
+```json
+{
+  "event_type": "date", "guest_count": 2, "created_at": "2026-09-20T18:30:00",
+  "timeline": "[{\"time\": \"8:00 PM\", ...}]",
+  "dineout_options": "…", "food_options": "…", "instamart_cart": "…",
+  "health_insight": "…", "active_offers": "…",
+  "dineout_cost": 1800, "food_cost": 400, "instamart_cost": 150,
+  "total_cost": 2350, "total_savings": 325
+}
+```
+
+Deliberately **not** included: `id` / `user_id` / `event_id`, `status`, booking or order
+IDs, `order_error`, the resolved Dineout slot list, `share_token`, and the event's typed
+`location`. Always sent with `Cache-Control: no-store`. 120/hr per client IP.
 
 ## Events
 

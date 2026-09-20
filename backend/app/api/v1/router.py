@@ -13,13 +13,14 @@ Result:
   POST /api/v1/plans/generate
   POST /api/v1/plans/chat
   GET  /api/v1/plans/{plan_id}
+  GET  /api/v1/shared/{token}    ← public, read-only, no login
   POST /api/v1/events/
   ... etc
 """
 
 from fastapi import APIRouter
 from app.api.v1.endpoints import plans, events, users, offers, orders, auth
-from app.api.v1.endpoints import search
+from app.api.v1.endpoints import search, shared
 
 api_router = APIRouter()
 
@@ -30,3 +31,4 @@ api_router.include_router(plans.router, prefix="/plans", tags=["plans"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(offers.router, prefix="/offers", tags=["offers"])
 api_router.include_router(orders.router, prefix="/orders", tags=["orders"])
+api_router.include_router(shared.router, prefix="/shared", tags=["shared"])

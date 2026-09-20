@@ -155,3 +155,32 @@ class PlanRequest(BaseModel):
         default=None,
         description="ID of the chosen Food restaurant (mirrors selected_food.id)",
     )
+
+
+class SharedPlanView(BaseModel):
+    """
+    What GET /shared/{token} returns to an anonymous viewer.
+
+    A deliberate ALLOWLIST, not the Plan row: the endpoint builds this
+    explicitly, so a sensitive column added to Plan later (booking IDs,
+    the resolved Dineout slot list, order errors, user/event IDs, the
+    event's typed location — which can be a home address) can never leak
+    through a public link by accident. Field names mirror the Plan columns
+    demo.html's planFromRecord() already consumes, so a shared plan
+    renders through the same code path as a history plan.
+    """
+
+    event_type: Optional[str] = None
+    guest_count: Optional[int] = None
+    created_at: Optional[str] = None
+    timeline: Optional[str] = None
+    dineout_options: Optional[str] = None
+    food_options: Optional[str] = None
+    instamart_cart: Optional[str] = None
+    health_insight: Optional[str] = None
+    active_offers: Optional[str] = None
+    dineout_cost: Optional[int] = None
+    food_cost: Optional[int] = None
+    instamart_cost: Optional[int] = None
+    total_cost: Optional[int] = None
+    total_savings: Optional[int] = None

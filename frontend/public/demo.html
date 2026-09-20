@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="referrer" content="same-origin">
 <title>Soirée — Life Events Concierge</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500;1,600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
@@ -452,6 +453,23 @@ header {
   max-width: 1800px;
   margin: 0 auto;
   width: 100%;
+}
+
+/* Read-only view of a shared plan (?share=<token>) — no form, no account UI. */
+body.shared-view .sidebar { display: none; }
+body.shared-view .app { grid-template-columns: 1fr; animation-delay: 0.7s; }
+body.shared-view #acctBtn,
+body.shared-view #historyBtn,
+body.shared-view #deleteDataLink,
+body.shared-view #swiggyAuthBtn { display: none !important; }
+.shared-banner {
+  font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+  color: var(--text3); margin-bottom: 22px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.shared-cta {
+  margin-top: 36px; padding: 26px; text-align: center;
+  border: 1px solid var(--gold-dim); border-radius: 14px; background: var(--surface);
 }
 
 @media (max-width: 768px) {
@@ -1964,8 +1982,32 @@ input[type=range]::-webkit-slider-thumb:hover {
   </div>
 </div>
 
+<!-- Share-link modal -->
+<div id="shareModal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(6,4,2,0.72);backdrop-filter:blur(8px);align-items:center;justify-content:center;padding:20px;font-family:'DM Sans',sans-serif;">
+  <div style="width:100%;max-width:440px;background:var(--surface);border:1px solid var(--gold-dim);border-radius:16px;padding:28px 26px;box-shadow:0 24px 80px rgba(0,0,0,0.5);">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;">
+      <div style="font-family:'Cormorant Garamond',serif;font-size:22px;letter-spacing:3px;color:var(--gold);">SHARE</div>
+      <div onclick="closeShareModal()" style="cursor:pointer;color:var(--text3);font-size:18px;line-height:1;">✕</div>
+    </div>
+    <div id="shareBody" style="font-size:13px;color:var(--text2);line-height:1.7;margin:14px 0 18px;"></div>
+    <div id="shareLinkRow" style="display:none;">
+      <input id="shareLinkInput" type="text" readonly onclick="this.select()"
+        style="width:100%;padding:11px 12px;background:var(--bg);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-family:'DM Mono',monospace;font-size:12px;margin-bottom:10px;">
+      <button id="shareCopyBtn" onclick="copyShareLink()"
+        style="width:100%;padding:13px;background:linear-gradient(135deg,var(--gold2),var(--gold3));border:none;border-radius:10px;color:#1a1006;font-size:13px;font-weight:600;letter-spacing:1px;cursor:pointer;margin-bottom:12px;">
+        Copy link
+      </button>
+      <div style="font-size:12px;color:var(--text3);line-height:1.7;">
+        Anyone with this link can view this plan (read-only) — they can't order or edit anything.
+        <a onclick="unsharePlan()" style="color:var(--gold);cursor:pointer;text-decoration:underline;text-underline-offset:2px;">Stop sharing</a>
+        turns the link off immediately.
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Persistent undo / booking-status banner -->
-<div id="orderBanner" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:9999;background:var(--surface);border:1px solid var(--gold-dim);border-radius:12px;padding:14px 20px;box-shadow:0 12px 40px rgba(0,0,0,0.4);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text2);display:flex;align-items:center;gap:14px;max-width:90vw;">
+<div id="orderBanner" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:9999;background:var(--surface);border:1px solid var(--gold-dim);border-radius:12px;padding:14px 20px;box-shadow:0 12px 40px rgba(0,0,0,0.4);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text2);align-items:center;gap:14px;max-width:90vw;">
   <span id="orderBannerText"></span>
   <a id="orderBannerUndo" onclick="undoBooking()" style="color:var(--gold);cursor:pointer;text-decoration:underline;text-underline-offset:2px;white-space:nowrap;">Undo</a>
 </div>
@@ -2002,13 +2044,21 @@ const S = {
   planId: null,
 };
 
+// ── SHARED-PLAN VIEW ───────────────────────────────────────────────
+// ?share=<token> opens a read-only view of someone's plan: no login, no
+// form, no ordering/chat. The token is a capability — see api/v1/endpoints/
+// shared.py. Everything below is skipped for a normal visit.
+const SHARE_TOKEN = new URLSearchParams(window.location.search).get('share');
+if (SHARE_TOKEN) document.body.classList.add('shared-view');
+
 // ── LOADING SCREEN ─────────────────────────────────────────────────
 window.addEventListener('load', () => {
   setTimeout(() => {
     document.getElementById('loadScreen').classList.add('hidden');
+    if (SHARE_TOKEN) { loadSharedPlan(SHARE_TOKEN); return; }
     renderAccount();
     checkSwiggyAuth().catch(e => console.warn('Auth check failed:', e));
-  }, 2200);
+  }, SHARE_TOKEN ? 800 : 2200);
 });
 
 // ── SIGN IN (Swiggy OAuth is the login) ────────────────────────────
@@ -2408,6 +2458,17 @@ function getSection(text, marker) {
   return m ? m[1].trim() : '';
 }
 
+// Plan text (Claude's output, built partly from Swiggy data and the user's
+// own notes) is plain text that ends up in innerHTML. Escaping it at render
+// time is what makes a *shared* plan safe to open: without it, a note that
+// coaxed Claude into emitting <img onerror=…> would run in the recipient's
+// browser, on the origin that holds their session token in localStorage.
+function esc(v) {
+  return String(v ?? '').replace(/[&<>"']/g, ch => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+  ));
+}
+
 function parseTimeline(raw) {
   return raw.split('\n')
     .filter(l => l.includes('|'))
@@ -2492,19 +2553,26 @@ function reveal(el, delay = 0) {
   setTimeout(() => el.classList.add('visible'), delay);
 }
 
-function renderPlan(plan) {
+function renderPlan(plan, { readOnly = false, sharedMeta = null } = {}) {
   const c = document.getElementById('planContent');
   let html = '';
 
+  if (readOnly && sharedMeta) {
+    html += `<div class="shared-banner reveal" id="rShared">
+      <span>✦ A plan shared via Soirée</span>
+      <span style="color:var(--text2)">${esc(sharedMeta)}</span>
+    </div>`;
+  }
+
   if (S.addressUsed) {
     html += `<div class="reveal" id="rAddr" style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:18px;display:flex;align-items:center;gap:8px">
-      <span>📍</span><span>Planning from ${S.addressUsed}</span>
+      <span>📍</span><span>Planning from ${esc(S.addressUsed)}</span>
     </div>`;
   }
 
   if (plan.brief) {
     html += `<div class="plan-brief reveal" id="r0">
-      <p class="brief-text">${plan.brief}</p>
+      <p class="brief-text">${esc(plan.brief)}</p>
     </div>`;
   }
 
@@ -2517,11 +2585,11 @@ function renderPlan(plan) {
       <div class="timeline">
         ${plan.timeline.map(s => `
           <div class="tl-row">
-            <div class="tl-node">${s.emoji}</div>
+            <div class="tl-node">${esc(s.emoji)}</div>
             <div class="tl-body">
-              <div class="tl-time">${s.time}</div>
-              <div class="tl-title">${s.title}</div>
-              <div class="tl-detail">${s.detail}</div>
+              <div class="tl-time">${esc(s.time)}</div>
+              <div class="tl-title">${esc(s.title)}</div>
+              <div class="tl-detail">${esc(s.detail)}</div>
             </div>
           </div>
         `).join('')}
@@ -2568,9 +2636,9 @@ function renderPlan(plan) {
       <div class="offers-header">
         <div class="section-line"></div>
         <span class="section-title">Offers & Savings</span>
-        ${plan.totalSavings ? `<span class="savings-badge">${plan.totalSavings} saved</span>` : ''}
+        ${plan.totalSavings ? `<span class="savings-badge">${esc(plan.totalSavings)} saved</span>` : ''}
       </div>
-      <div style="font-size:13px;color:var(--text2);line-height:1.85;white-space:pre-wrap">${plan.offers}</div>
+      <div style="font-size:13px;color:var(--text2);line-height:1.85;white-space:pre-wrap">${esc(plan.offers)}</div>
     </div>`;
   }
 
@@ -2583,19 +2651,36 @@ function renderPlan(plan) {
       </div>
       ${rows.length ? `<div class="cost-breakdown" style="grid-template-columns:repeat(${rows.length},1fr)">
         ${rows.map(r => `<div class="cost-col">
-            <div class="cost-col-label">${r.label}</div>
-            <div class="cost-col-val">${r.val}</div>
+            <div class="cost-col-label">${esc(r.label)}</div>
+            <div class="cost-col-val">${esc(r.val)}</div>
           </div>`).join('')}
       </div>` : ''}
       ${plan.totalCost ? `<div class="cost-total-row">
         <span class="cost-total-label">Total for the evening</span>
-        <span class="cost-total-val">${plan.totalCost}</span>
+        <span class="cost-total-val">${esc(plan.totalCost)}</span>
       </div>` : ''}
     </div>`;
   }
 
   if (plan.health) {
-    html += `<div class="health-note reveal" id="r5">💚 ${plan.health}</div>`;
+    html += `<div class="health-note reveal" id="r5">💚 ${esc(plan.health)}</div>`;
+  }
+
+if (readOnly) {
+    html += `<div class="shared-cta reveal" id="r6">
+      <div style="font-family:'Cormorant Garamond',serif;font-size:24px;color:var(--gold2);margin-bottom:6px">Plan your own evening</div>
+      <div style="font-size:13px;color:var(--text3);margin-bottom:18px">Soirée turns an occasion into a full plan — timeline, table, groceries, offers.</div>
+      <a class="btn-pri" href="${location.pathname}" style="display:inline-block;text-decoration:none">✦ &nbsp;Try Soirée</a>
+    </div>`;
+    c.innerHTML = html;
+    document.getElementById('emptyState').style.display = 'none';
+    document.getElementById('genState').style.display = 'none';
+    c.style.display = 'block';
+    ['rShared','r0','r1','r2','r3','r4','r5','r6'].forEach((id, i) => {
+      const el = document.getElementById(id);
+      if (el) reveal(el, i * 110);
+    });
+    return;
   }
 
 // Build service selection based on what's in the plan
@@ -2630,6 +2715,7 @@ function renderPlan(plan) {
     </div>
     <div style="display:flex;gap:10px;align-items:center">
       <button class="btn-sec" onclick="resetPlan()">↺ &nbsp;New plan</button>
+      ${S.planId ? `<button class="btn-sec" onclick="sharePlan()">🔗 &nbsp;Share</button>` : ''}
       <button class="btn-pri" onclick="approveOrder()">
         ✓ &nbsp;Approve & Order
       </button>
@@ -2998,7 +3084,7 @@ function appendMsg(role, text, typing) {
   div.innerHTML = `
     <div class="chat-av ${isUser ? 'usr' : 'ai'}">${isUser ? '↑' : '✦'}</div>
     <div class="chat-bub ${isUser ? 'usr' : 'ai'}">
-      ${typing ? '<div class="typing-dots"><div class="td"></div><div class="td"></div><div class="td"></div></div>' : (text||'')}
+      ${typing ? '<div class="typing-dots"><div class="td"></div><div class="td"></div><div class="td"></div></div>' : esc(text)}
     </div>`;
   const container = document.getElementById('chatMsgs');
   container.appendChild(div);
@@ -3006,7 +3092,9 @@ function appendMsg(role, text, typing) {
   return id;
 }
 function formatChatText(text) {
-  return text
+  // Escape first, then add our own markup — the *…* / **…** / newline
+  // rewrites below only ever emit tags we chose, never anything from `text`.
+  return esc(text)
     .replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--text);font-weight:600">$1</strong>')
     .replace(/\*(.*?)\*/g, '<em>$1</em>')
     .replace(/^[-–]\s+/gm, '• ')
@@ -3123,6 +3211,95 @@ function updateOrderTotal() {
       el.style.opacity = '1';
       el.style.transform = 'translateY(0)';
     }, 150);
+  }
+}
+
+// ── SHARE (owner side) ─────────────────────────────────────────────
+function shareUrl(token) {
+  return `${location.origin}${location.pathname}?share=${encodeURIComponent(token)}`;
+}
+
+function closeShareModal() {
+  document.getElementById('shareModal').style.display = 'none';
+}
+
+async function sharePlan() {
+  if (!S.planId) return;
+  const body = document.getElementById('shareBody');
+  document.getElementById('shareLinkRow').style.display = 'none';
+  body.textContent = 'Creating your link…';
+  document.getElementById('shareModal').style.display = 'flex';
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/plans/${S.planId}/share`, {
+      method: 'POST', headers: authHeaders(),
+    });
+    if (res.status === 401) { closeShareModal(); handle401(); return; }
+    if (!res.ok) throw new Error(res.status);
+    const { share_token } = await res.json();
+    body.textContent = 'Send this to anyone you want to see the plan.';
+    document.getElementById('shareLinkInput').value = shareUrl(share_token);
+    document.getElementById('shareCopyBtn').textContent = 'Copy link';
+    document.getElementById('shareLinkRow').style.display = 'block';
+  } catch (e) {
+    body.textContent = "Couldn't create a link — try again in a moment.";
+  }
+}
+
+async function copyShareLink() {
+  const input = document.getElementById('shareLinkInput');
+  const btn = document.getElementById('shareCopyBtn');
+  try {
+    await navigator.clipboard.writeText(input.value);
+    btn.textContent = 'Copied ✓';
+  } catch (e) {
+    input.select();
+    btn.textContent = 'Press Ctrl/⌘ + C to copy';
+  }
+}
+
+async function unsharePlan() {
+  if (!S.planId) return;
+  const body = document.getElementById('shareBody');
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/plans/${S.planId}/share`, {
+      method: 'DELETE', headers: authHeaders(),
+    });
+    if (res.status === 401) { closeShareModal(); handle401(); return; }
+    if (!res.ok) throw new Error(res.status);
+    document.getElementById('shareLinkRow').style.display = 'none';
+    body.textContent = 'Sharing is off — the link no longer works.';
+  } catch (e) {
+    body.textContent = "Couldn't turn the link off — try again in a moment.";
+  }
+}
+
+// ── SHARE (recipient side) ─────────────────────────────────────────
+function renderSharedUnavailable(msg) {
+  const c = document.getElementById('planContent');
+  document.getElementById('emptyState').style.display = 'none';
+  c.innerHTML = `<div class="shared-cta">
+    <div style="font-family:'Cormorant Garamond',serif;font-size:24px;color:var(--gold2);margin-bottom:6px">Plan not available</div>
+    <div style="font-size:13px;color:var(--text3);margin-bottom:18px">${esc(msg || 'This link may have been turned off by whoever shared it.')}</div>
+    <a class="btn-pri" href="${location.pathname}" style="display:inline-block;text-decoration:none">✦ &nbsp;Try Soirée</a>
+  </div>`;
+  c.style.display = 'block';
+}
+
+async function loadSharedPlan(token) {
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/shared/${encodeURIComponent(token)}`);
+    if (res.status === 404) { renderSharedUnavailable(); return; }
+    if (!res.ok) throw new Error(res.status);
+    const record = await res.json();
+    const meta = OCCASION_META[record.event_type] || { emoji: '✦', label: 'Evening' };
+    const guests = record.guest_count
+      ? ` · ${record.guest_count} guest${record.guest_count === 1 ? '' : 's'}` : '';
+    renderPlan(planFromRecord(record), {
+      readOnly: true,
+      sharedMeta: `${meta.emoji} ${meta.label}${guests}`,
+    });
+  } catch (e) {
+    renderSharedUnavailable("Couldn't load this plan — check your connection and refresh.");
   }
 }
 

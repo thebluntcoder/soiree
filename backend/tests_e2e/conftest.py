@@ -91,6 +91,10 @@ _PLAN_TEXT = (
     "[COST]\n"
     '{"dineout": 1800, "food": 400, "instamart": 150, "total": 2350}'
 )
+# Per-test override for what the mocked Claude returns from plan generation —
+# see the `plan_text_override` fixture. Empty = use _PLAN_TEXT.
+_PLAN_OVERRIDE: dict = {}
+
 _REFINE_REPLY = "Farzi Cafe's rooftop table is the romantic pick here — good call."
 
 
@@ -127,7 +131,7 @@ def _mock_claude():
             import json
 
             return _Message(json.dumps({"action": "answer", "reply": _REFINE_REPLY, "patch": {}}))
-        return _Message(_PLAN_TEXT)
+        return _Message(_PLAN_OVERRIDE.get("text", _PLAN_TEXT))
 
     fake_client = AsyncMock()
     fake_client.messages.create = AsyncMock(side_effect=_fake_create)
@@ -136,6 +140,18 @@ def _mock_claude():
     planner_mod._get_clients = lambda: (fake_client, original()[1], original()[2])
     yield
     planner_mod._get_clients = original
+
+
+@pytest.fixture
+def plan_text_override():
+    """Call the returned function with a plan string to have the mocked
+    Claude return it (instead of _PLAN_TEXT) for this test only."""
+
+    def _set(text: str) -> None:
+        _PLAN_OVERRIDE["text"] = text
+
+    yield _set
+    _PLAN_OVERRIDE.clear()
 
 
 def _run_async(coro):

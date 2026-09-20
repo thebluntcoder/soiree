@@ -7,6 +7,48 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-09-20
+
+### Shareable plan link (TODO §5)
+
+- **A Share button on any plan turns on a read-only public link**
+  (`demo.html?share=<token>`). The token is a capability — 128 random bits
+  (`secrets.token_urlsafe(16)`) in the new unique-indexed `plans.share_token`
+  column (Alembic `e5f6a7b8c9d0`, idempotent) — so recipients need no login
+  and no Swiggy account. `POST /plans/{id}/share` (owner-only, idempotent,
+  race-safe via a conditional `UPDATE … WHERE share_token IS NULL`) mints it;
+  `DELETE /plans/{id}/share` revokes it and the old link `404`s immediately.
+- **`GET /shared/{token}`** — the only unauthenticated endpoint that reads a
+  plan, kept deliberately narrow: it returns `SharedPlanView`, an explicit
+  allowlist built by hand (no IDs, no booking/order data, no resolved slot
+  list, and not the event's typed `location`, which can be a home address),
+  `Cache-Control: no-store` so a revoked link can't linger in a cache, and
+  rate-limited per IP. The recipient sees the same `renderPlan()` in a
+  read-only mode — no form, account UI, ordering, or chat — plus a "Try
+  Soirée" link. Scope note: view-only; guest RSVP stays Phase 2.
+- **Security fix that applies everywhere, forced by sharing: plan and chat
+  text is now HTML-escaped at render time.** `demo.html` inserted Claude's
+  output (built partly from the owner's free-text notes and third-party Swiggy
+  data) into `innerHTML` unescaped — self-XSS at worst until a link could put it
+  in a stranger's browser, on the origin whose `localStorage` holds their session
+  token. New `esc()`; `formatChatText()` escapes before adding its own markup.
+  Verified by mutation: with `esc()` disabled the regression test's payload
+  runs (`window.__pwned === 1`) and the test fails.
+- **Fixed (pre-existing, v1.2.0): an empty "Undo" pill floated at the bottom of
+  every page from load.** `#orderBanner`'s inline style declared `display:none`
+  and later `display:flex`; the last one won. Caught while screenshotting the
+  shared view (it would have greeted every recipient). Regression test added.
+- `privacy.html` (still a draft) gains a "Sharing a plan" section saying what a
+  link exposes and that it can be revoked.
+- Docs: README §11/§13/§16/§21/§22 and `docs/api.md` updated; both also had
+  the old free-text `[COST]` format and stale test counts from before 1.4.0,
+  now corrected. `CLAUDE.md` documents the three rules that keep sharing safe.
+- 20 new unit tests (`test_share.py`: ownership, the pinned allowlist, and the
+  real route table proving the public endpoint is unauthenticated while the
+  owner endpoints require login) and 7 new E2E tests (anonymous read-only view,
+  revocation, the allowlist over real HTTP, XSS, the banner regression) — 285
+  unit + 14 E2E passing (was 265 + 7).
+
 ## [1.4.0] — 2026-09-17
 
 ### Structured `[COST]` output (TODO §5)

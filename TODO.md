@@ -289,7 +289,16 @@ customer id). So one Swiggy sign-in covers everything.
       gracefully degrades to answer-only since there's no original form
       request to regenerate from. `brief` isn't persisted (SSE-only), so
       history views skip that line. Covered by `tests_e2e::test_plan_history`.
-- [ ] Shareable plan card (+ guest RSVP — Phase 2)
+- [x] Shareable plan card — read-only public link (`Plan.share_token`,
+      `POST/DELETE /plans/{id}/share`, `GET /shared/{token}`, `demo.html?share=`).
+      Capability URL, allowlisted response, revocable, `no-store`. Also forced
+      the `esc()` fix for unescaped plan text in `innerHTML` — see CLAUDE.md.
+- [ ] Guest RSVP on a shared plan — Phase 2. The shared view is read-only by
+      design; RSVP needs a way to identify/rate-limit anonymous guests and a
+      place to store responses, none of which exists yet.
+- [ ] Shared-link view analytics — `plan_shared` fires when an owner shares,
+      but nothing counts *views*. Needs an anonymous distinct_id scheme that
+      doesn't muddy PostHog persons; only worth it once links are actually used.
 - [x] `demo.html` cost-breakdown parsing is regex-based and tolerant but
       still model-format-dependent; a structured `[COST]` block from the
       model would be sturdier — `[COST]` is now a single-line JSON object

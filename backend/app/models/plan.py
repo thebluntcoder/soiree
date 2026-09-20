@@ -172,6 +172,20 @@ class Plan(SQLModel, table=True):
         ),
     )
 
+    # --- Sharing ---
+
+    share_token: Optional[str] = Field(
+        default=None,
+        unique=True,
+        index=True,
+        description=(
+            "Unguessable capability token (secrets.token_urlsafe(16), 128 bits) "
+            "that makes this plan viewable read-only at GET /shared/{token} "
+            "without logging in. NULL = not shared. Revoking = setting it back "
+            "to NULL, so the old link 404s immediately."
+        ),
+    )
+
     # --- Edit tracking ---
     # Every time a user tweaks the plan via chat, edit_count increments.
     # Useful for UX analytics: do users edit a lot? Which parts most?

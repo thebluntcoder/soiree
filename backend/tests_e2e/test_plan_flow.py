@@ -45,6 +45,17 @@ def test_form_to_picker_to_plan_to_refine(authed_page):
     )
 
 
+def test_order_banner_is_hidden_until_there_is_something_to_say(authed_page):
+    """Regression: #orderBanner's inline style declared display:none and then
+    display:flex later in the same attribute — the last one won, so an empty
+    "Undo" pill floated at the bottom of every page from the moment it loaded
+    (owner and, once sharing existed, anonymous recipients alike)."""
+    page, static_base = authed_page
+    page.goto(f"{static_base}/demo.html")
+    page.wait_for_selector("#loadScreen", state="hidden", timeout=10_000)
+    expect(page.locator("#orderBanner")).to_be_hidden()
+
+
 def test_approve_and_order_books_dineout_table(authed_page):
     """
     form -> picker -> plan -> Approve & Order -> confirm modal -> pre-send
