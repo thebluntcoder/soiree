@@ -22,7 +22,7 @@
 8. [Two-Step Flow: Picker Before Plan](#8-two-step-flow-picker-before-plan)
 9. [The SSE Stream's Two Encoding Tricks](#9-the-sse-streams-two-encoding-tricks)
 10. [Ordering: Dineout Table Booking](#10-ordering-dineout-table-booking)
-11. [Plan History](#11-plan-history)
+11. [Plan History and Sharing](#11-plan-history-and-sharing)
 12. [Analytics and Logging](#12-analytics-and-logging)
 13. [Security and Rate Limiting](#13-security-and-rate-limiting)
 14. [Production Resilience](#14-production-resilience)
@@ -428,7 +428,7 @@ primitives than one call is.
 
 ---
 
-## 11. Plan History
+## 11. Plan History and Sharing
 
 `GET /plans/history` returns the last 20 `ready` plans as lightweight summaries —
 `event_type`/`location`/`guest_count` joined from the parent `Event` (a `Plan` row alone
@@ -439,6 +439,40 @@ generation — same renderer, same follow-up chat (`plan_text` is reconstructed 
 `[MARKER]` delimiters from the stored fields so `/plans/refine` grounds identically). `brief`
 isn't persisted anywhere (it only ever existed in the SSE stream), so a reopened historical
 plan renders without that one line.
+
+### Sharing a plan (`v1.5.0`)
+
+A **Share** button on any rendered plan turns on a read-only public link:
+`demo.html?share=<token>`. It's a *capability URL* — the token (`secrets.token_urlsafe(16)`,
+128 random bits, stored in `plans.share_token` under a unique index) **is** the permission,
+so the recipient needs no login and no Swiggy account. `POST /plans/{id}/share` (owner-only)
+mints it — idempotently, via a conditional `UPDATE … WHERE share_token IS NULL` so two
+concurrent first-time shares can't overwrite each other — and `DELETE /plans/{id}/share`
+sets it back to `NULL`, after which the old link `404`s immediately.
+
+`GET /shared/{token}` (`endpoints/shared.py`) is the **only unauthenticated endpoint that
+reads a plan**, so it's deliberately narrow:
+
+- It returns `SharedPlanView`, an explicit **allowlist** built by hand — never the raw
+  `Plan` row. No user/event/plan IDs, no booking IDs, no order status or errors, no resolved
+  Dineout slot list, and not the event's typed `location` (on a house-party plan that can be
+  a home address). A unit test pins the exact field set, so publishing something new to
+  anyone-with-a-link requires editing that test on purpose.
+- Every response is `Cache-Control: no-store`, so a revoked link can't keep being served
+  from a browser or edge cache; the page sets `referrer: same-origin` so the token never
+  rides a `Referer` header.
+- The recipient's view is the same `renderPlan()` in `readOnly` mode: no sidebar, no
+  account UI, no service selectors / Approve & Order / refine chat — just the plan and a
+  "Try Soirée" link.
+
+**Sharing forced an XSS fix that applies everywhere.** Plan text is Claude's output —
+built partly from the owner's free-text notes and third-party Swiggy data — and
+`demo.html` inserts it via `innerHTML`. That was self-XSS at worst until a link could put
+it in a *stranger's* browser, on the origin whose `localStorage` holds their session token.
+All plan/chat text now goes through `esc()` at render time (`formatChatText()` escapes
+before applying its own `**bold**` / newline markup). An E2E test feeds the mocked Claude
+`<img onerror>` / `<svg onload>` payloads in every persisted section and asserts neither
+the owner's view nor a recipient's executes them.
 
 ---
 
@@ -477,6 +511,9 @@ logs — those are separate loggers with `propagate=False`.
   Limits: 25 `/plans/generate`, 40 `/plans/refine` + `/plans/chat`, 90 `/search/`, 10
   `/plans/{id}/order` per hour; `/auth/start` + `/auth/callback` capped at 30/hr per IP.
 - **`/docs`, `/redoc`, `/openapi.json`** disabled in `APP_ENV=production`.
+- **Shared plan links are capability URLs with an allowlisted payload and escaped
+  rendering** — see §11. Sharing is rate-limited (30/hr per caller); the public
+  `GET /shared/{token}` view is capped at 120/hr per IP.
 - **MCP error taxonomy** — 401/419/403 from Swiggy normalise to a `PermissionError` subtype
   in `base.py`, mapped to specific frontend re-auth actions in `docs/mcp-integration.md`.
 - **Consent gate** — `GET /auth/start` requires `consent=true` server-side (not just a
@@ -528,14 +565,15 @@ soiree/
 │   │   │       ├── auth.py                # Swiggy OAuth = login: start / callback / status / logout
 │   │   │       ├── search.py              # POST /search/ — picker discovery, /_debug, /restaurant/{id}
 │   │   │       ├── events.py              # CRUD, owned by current_user
-│   │   │       ├── plans.py               # SSE generate/chat/refine, history, order placement
+│   │   │       ├── plans.py               # SSE generate/chat/refine, history, order placement, share on/off
+│   │   │       ├── shared.py              # GET /shared/{token} — the one public, read-only plan view
 │   │   │       ├── users.py               # GET /users/me, logout, DELETE /users/me (data purge)
 │   │   │       ├── offers.py              # GET /offers/ — public, no login required
 │   │   │       └── orders.py              # GET /orders/{plan_id} — order/booking status, read-only
 │   │   ├── lib/
 │   │   │   └── parse_plan.py              # Server-side [MARKER] section parser
 │   │   ├── services/
-│   │   │   ├── plan_service.py            # create_plan, update_plan_text, approve_and_claim_for_ordering
+│   │   │   ├── plan_service.py            # create_plan, update_plan_text, approve_and_claim_for_ordering, enable/disable_sharing
 │   │   │   ├── analytics.py               # PostHog wrapper — no-op without POSTHOG_API_KEY
 │   │   │   ├── auth/
 │   │   │   │   ├── session.py             # Soirée session tokens in Redis
@@ -631,6 +669,7 @@ soiree/
 | `dineout_cost`, `food_cost`, `instamart_cost`, `total_cost`, `total_savings` | `INT` NULLABLE | Parsed from Claude's `[COST]` section into queryable integers |
 | `dineout_booking_id`, `food_order_id`, `instamart_order_id` | `VARCHAR` NULLABLE | Only `dineout_booking_id` is ever populated today |
 | `order_error` | `VARCHAR` NULLABLE | **New in v1.2.0** — machine-readable failure code when `status=failed` |
+| `share_token` | `VARCHAR` NULLABLE, **UNIQUE** | **New in v1.5.0** — capability token for the read-only public link; `NULL` = not shared (§11) |
 | `edit_count`, `last_edited_at` | | Chat-driven regenerations |
 | `created_at`, `approved_at` | | |
 
@@ -760,7 +799,7 @@ service yet.
 
 ## 21. Test Suite
 
-**240 unit tests**, hand-written fakes throughout — no `aiosqlite` fixture, no `fakeredis`
+**285 unit tests**, hand-written fakes throughout — no `aiosqlite` fixture, no `fakeredis`
 dependency. Tests that need Redis-like behavior build a small dict-backed fake class inline
 and `monkeypatch` the module's `get_redis`; MCP-touching business logic (`_enrich_dineout`,
 `book_with_retry`) mocks the relevant client methods directly with `AsyncMock`; endpoint
@@ -768,7 +807,7 @@ functions are called directly with stub `db`/`user` objects rather than going th
 FastAPI's test client. `respx` mocks the two outbound OAuth HTTP calls
 (`register_client`, `exchange_code_for_token`).
 
-**7 E2E tests** (`backend/tests_e2e/`, Playwright) are the deliberate exception — a
+**14 E2E tests** (`backend/tests_e2e/`, Playwright) are the deliberate exception — a
 genuinely live stack: the real FastAPI app in a background thread, a real (throwaway)
 Postgres database, real Redis, a real Chromium browser driving `demo.html` over real HTTP.
 Only Claude is mocked (monkeypatching `planner._get_clients`) — everything else, including
@@ -785,6 +824,10 @@ tests/unit/
 ├── test_oauth.py           # PKCE generation, authorize URL, token exchange (respx)
 ├── test_search.py          # GET /search/restaurant/{id}'s slot-merging
 ├── test_orders_endpoint.py # POST /plans/{plan_id}/order's branching
+├── test_share.py           # Share/unshare ownership, the public view's allowlist + route auth
+├── test_base_mcp.py        # SSE-framed MCP response fallback
+├── test_search_endpoint.py # /search/ survives a degraded service (regression)
+├── test_error_handling.py  # Unhandled 500s keep their CORS headers (real ASGI stack)
 ├── test_dineout_mcp.py     # book_table / get_booking_status, mock + real-call shape
 ├── test_dineout_ordering.py# book_with_retry's full retry state machine
 ├── test_parse_mcp.py       # Every MCP text-normalisation parser
@@ -799,6 +842,7 @@ tests/unit/
 tests_e2e/
 ├── conftest.py              # Live-stack fixtures — background-thread uvicorn, throwaway DB/Redis
 ├── test_plan_flow.py        # form → picker → plan → refine → history → approve & order
+├── test_share.py            # Anonymous read-only view, revocation, allowlist over real HTTP, XSS regression
 └── test_auth_flow.py        # Proactive Swiggy-reconnect nudge
 ```
 
@@ -814,7 +858,8 @@ Full request/response shapes, error codes, and the auth model live in
 | `auth` | `GET /auth/start` · `POST /auth/callback` · `GET /auth/status` · `POST /auth/logout` |
 | `search` | `POST /search/` · `GET /search/restaurant/{id}` · `GET /search/_debug` |
 | `events` | `POST /events/` · `GET /events/` · `GET /events/{id}` · `PATCH /events/{id}` · `DELETE /events/{id}` |
-| `plans` | `POST /plans/generate` (SSE) · `POST /plans/chat` (SSE, legacy) · `POST /plans/refine` · `GET /plans/event/{id}` · `GET /plans/history` · `GET /plans/{id}` · `POST /plans/{id}/order` |
+| `plans` | `POST /plans/generate` (SSE) · `POST /plans/chat` (SSE, legacy) · `POST /plans/refine` · `GET /plans/event/{id}` · `GET /plans/history` · `GET /plans/{id}` · `POST /plans/{id}/order` · `POST /plans/{id}/share` · `DELETE /plans/{id}/share` |
+| `shared` | `GET /shared/{token}` (public, read-only, no login) |
 | `users` | `GET /users/me` · `POST /users/logout` · `DELETE /users/me` |
 | `offers` | `GET /offers/` (public) |
 | `orders` | `GET /orders/{plan_id}` |
@@ -891,8 +936,11 @@ earns it — see `CHANGELOG.md` for the full history back to `0.1.0`.
 - Stale Next.js app deleted down to a minimal OAuth-callback shell
 - Plan history UI
 - Real Dineout slots surfaced in the picker and plan (`1.1.0`)
-- **Dineout table booking — `book_table` + retry logic, confirmation + pre-send undo
-  (`1.2.0`, this release)**
+- Dineout table booking — `book_table` + retry logic, confirmation + pre-send undo (`1.2.0`)
+- Sentry, CORS-safe error handling, and the SSE-framed-MCP-response root-cause fix (`1.3.0`)
+- Structured `[COST]` JSON output from Claude (`1.4.0`)
+- **Shareable plan link — read-only, revocable, allowlisted, with escaped rendering
+  (`1.5.0`, this release)**
 
 ### Next — see [TODO.md](TODO.md) for the full prioritised list
 

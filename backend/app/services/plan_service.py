@@ -19,9 +19,12 @@ OPERATIONS IN THIS FILE:
   get_plan         → fetch single plan by ID
   list_plans       → fetch all plans for a user (newest first)
   get_event_plans  → fetch all plans for a specific event
+  enable_sharing / disable_sharing / get_plan_by_share_token
+                   → the read-only public share link (see plans.py, shared.py)
 """
 
 import json
+import secrets
 from datetime import datetime
 from sqlmodel import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -128,6 +131,43 @@ async def update_plan_text(
 async def get_plan(session: AsyncSession, plan_id: str) -> Plan | None:
     """Fetch a single plan by ID. Returns None if not found."""
     result = await session.execute(select(Plan).where(Plan.id == plan_id))
+    return result.scalar_one_or_none()
+
+
+async def enable_sharing(session: AsyncSession, plan_id: str) -> str | None:
+    """
+    Make a plan publicly viewable (read-only) and return its share token.
+    Idempotent: sharing an already-shared plan returns the existing token,
+    so the same link keeps working and repeated clicks don't churn it.
+
+    The token is only ever *set* by a conditional UPDATE ... WHERE
+    share_token IS NULL — two concurrent first-time shares can't overwrite
+    each other's token (the loser's UPDATE matches zero rows and it reads
+    back the winner's). Returns None if the plan doesn't exist.
+    """
+    await session.execute(
+        update(Plan)
+        .where(Plan.id == plan_id, Plan.share_token.is_(None))
+        .values(share_token=secrets.token_urlsafe(16))
+    )
+    await session.commit()
+    plan = await get_plan(session, plan_id)
+    if plan is not None:
+        await session.refresh(plan)
+    return plan.share_token if plan else None
+
+
+async def disable_sharing(session: AsyncSession, plan_id: str) -> None:
+    """Revoke the share link — the old URL 404s immediately."""
+    await session.execute(
+        update(Plan).where(Plan.id == plan_id).values(share_token=None)
+    )
+    await session.commit()
+
+
+async def get_plan_by_share_token(session: AsyncSession, token: str) -> Plan | None:
+    """Resolve a public share token to its plan, or None."""
+    result = await session.execute(select(Plan).where(Plan.share_token == token))
     return result.scalar_one_or_none()
 
 

@@ -151,6 +151,32 @@ The 60s "undo" window in `demo.html` is pre-send, not post-send: there's no conf
 `cancel_booking` tool, so the countdown happens *before* `book_table` ever fires, and
 undo just means the request is never sent — not cancelling something already booked.
 
+### Sharing: a capability URL, an allowlisted payload, and escaped rendering
+
+`Plan.share_token` (128 random bits, unique-indexed) makes a plan viewable read-only at
+`GET /shared/{token}` (`endpoints/shared.py`) with no login. Three things keep that safe, and
+none of them is optional:
+
+1. **The public response is `SharedPlanView`, built field by field — never the `Plan` row.**
+   It's the only unauthenticated endpoint that reads a plan, so a sensitive column added to
+   `Plan` later (booking IDs, `dineout_selection`, the event's typed `location` — which can be
+   a home address) must not reach it by accident. `test_share.py` hard-codes the exact field
+   set, so widening it means editing that test deliberately. Don't `return plan`.
+2. **Plan/chat text must be `esc()`'d before it goes into `innerHTML` in `demo.html`.** Plan
+   text is Claude output, shaped by the owner's free-text notes and third-party Swiggy data.
+   That was self-XSS until a link could deliver it to a stranger's browser, on the origin whose
+   `localStorage` holds their session token. `formatChatText()` escapes *first*, then adds its
+   own markup. Any new plan field rendered in `renderPlan()` needs `esc()` too; the E2E test
+   `test_shared_plan_cannot_run_html_injected_into_it` will catch a miss.
+3. **Revocation is `share_token = NULL`, and responses are `no-store`.** Don't add a cache in
+   front of `/shared/{token}`.
+
+`enable_sharing` mints via a conditional `UPDATE … WHERE share_token IS NULL`, the same
+compare-and-swap idea as `approve_and_claim_for_ordering` — a race-safety property fakes can't
+prove, so it's exercised by the E2E suite against real Postgres. Migrating: the E2E suite runs
+against `soiree_e2e`, which needs `alembic upgrade head` after any new migration (see
+`tests_e2e/conftest.py`).
+
 ### The SSE stream has two encoding tricks, both load-bearing
 
 1. Claude's plan text contains real newlines, which the SSE framing protocol treats as

@@ -29,6 +29,8 @@ ENDPOINTS:
   GET  /plans/event/{event_id} → all plans for one of the user's events
   GET  /plans/{plan_id}        → fetch a saved plan the user owns
   POST /plans/{plan_id}/order  → book the Dineout table (Food/Instamart not yet — TODO.md §4)
+  POST   /plans/{plan_id}/share → turn on the read-only public link, returns its token
+  DELETE /plans/{plan_id}/share → turn it off (the old link 404s immediately)
 """
 
 import asyncio
@@ -54,9 +56,12 @@ from app.models.user import User
 from app.schemas.plan import PlanRequest
 from app.services import analytics
 from app.services.ai.planner import generate_followup, generate_plan, refine_plan
+from app.models.plan import PlanStatus
 from app.services.plan_service import (
     approve_and_claim_for_ordering,
     create_plan,
+    disable_sharing,
+    enable_sharing,
     get_event_plans,
     get_plan,
     list_user_plans,
@@ -360,6 +365,53 @@ async def get_plan_endpoint(
     if not plan or plan.user_id != user.id:
         raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
     return plan
+
+
+_SHARE_LIMIT = Depends(rate_limit("plan_share", limit=30, window_seconds=3600))
+
+
+@router.post(
+    "/{plan_id}/share",
+    summary="Turn on the read-only public link for a plan you own",
+    dependencies=[_SHARE_LIMIT],
+)
+async def share_plan(
+    plan_id: str,
+    user: User = Depends(current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Returns {"share_token": ...}; the frontend builds the URL from its own
+    origin (`?share=<token>`), so the backend needs no idea where the
+    frontend is hosted. Idempotent — an already-shared plan returns the
+    same token. A plan still generating has nothing to show yet → 409.
+    """
+    plan = await get_plan(session=session, plan_id=plan_id)
+    if not plan or plan.user_id != user.id:
+        raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
+    if plan.status == PlanStatus.generating:
+        raise HTTPException(
+            status_code=409, detail="This plan is still being generated."
+        )
+
+    token = await enable_sharing(session, plan_id)
+    analytics.capture(user.id, "plan_shared", {"plan_id": plan_id})
+    logger.info("Plan shared", extra={"plan_id": plan_id, "user_id": user.id})
+    return {"share_token": token}
+
+
+@router.delete("/{plan_id}/share", summary="Turn off the public link for a plan you own")
+async def unshare_plan(
+    plan_id: str,
+    user: User = Depends(current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    plan = await get_plan(session=session, plan_id=plan_id)
+    if not plan or plan.user_id != user.id:
+        raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
+    await disable_sharing(session, plan_id)
+    logger.info("Plan unshared", extra={"plan_id": plan_id, "user_id": user.id})
+    return {"share_token": None}
 
 
 class OrderRequest(BaseModel):
